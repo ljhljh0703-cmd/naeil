@@ -1,16 +1,19 @@
 openapi: 3.1.0
 info:
   title: naeil API
-  version: 0.1.0-draft
+  version: 0.1.0
   summary: 내 일은 naeil에서
   description: |
-    내일은내일(naeil) 할 일 API 명세서 초안 (검토용, 코드는 아직 없음).
+    내일은내일(naeil) 할 일 API 명세서 v1 (작가 결정 4곳 반영 2026-10-25, 코드는 1-2단계).
 
     - 주소 앞에 버전 `/v1`
     - 시간은 전부 세계 표준시 ISO 8601 (`2026-10-25T05:00:00.000Z`)
     - 지우기는 휴지통으로 (`DELETE` = 휴지통, 되살리기 따로)
     - 오류는 한 가지 모양 (`application/problem+json`)
-    - 「결정 필요」라고 적힌 곳은 작가가 고른 뒤 확정
+    - 누가: 도구별 출입증(비밀 키) 3장 + 세션 이름표 `X-Naeil-Session`
+    - 같은 요청 두 번: `Idempotency-Key` 로 한 번만 처리
+    - 덮어쓰기: `If-Match` 를 보내면 검사 (선택)
+    - 목록 나누기: 커서 (`cursor` · `nextCursor`)
   license:
     name: MIT
     identifier: MIT
@@ -76,7 +79,7 @@ paths:
       operationId: createProject
       summary: 프로젝트 만들기
       parameters:
-        - $ref: "#/components/parameters/Actor"
+        - $ref: "#/components/parameters/Session"
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
@@ -98,6 +101,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Project" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "422": { $ref: "#/components/responses/IdempotencyReused" }
 
   /v1/projects/{projectId}:
     parameters:
@@ -119,7 +123,7 @@ paths:
       operationId: updateProject
       summary: 프로젝트 이름 바꾸기
       parameters:
-        - $ref: "#/components/parameters/Actor"
+        - $ref: "#/components/parameters/Session"
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
         required: true
@@ -146,7 +150,7 @@ paths:
       operationId: trashProject
       summary: 프로젝트 휴지통으로
       parameters:
-        - $ref: "#/components/parameters/Actor"
+        - $ref: "#/components/parameters/Session"
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "204": { description: 휴지통으로 감 }
@@ -178,7 +182,7 @@ paths:
       operationId: createMilestone
       summary: 마일스톤 만들기
       parameters:
-        - $ref: "#/components/parameters/Actor"
+        - $ref: "#/components/parameters/Session"
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
@@ -199,6 +203,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Milestone" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "422": { $ref: "#/components/responses/IdempotencyReused" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/milestones/{milestoneId}:
@@ -209,7 +214,7 @@ paths:
       operationId: updateMilestone
       summary: 마일스톤 고치기 (이름·마감)
       parameters:
-        - $ref: "#/components/parameters/Actor"
+        - $ref: "#/components/parameters/Session"
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
         required: true
@@ -237,7 +242,7 @@ paths:
       operationId: trashMilestone
       summary: 마일스톤 휴지통으로
       parameters:
-        - $ref: "#/components/parameters/Actor"
+        - $ref: "#/components/parameters/Session"
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "204": { description: 휴지통으로 감 }
@@ -278,7 +283,7 @@ paths:
       operationId: createTask
       summary: 할 일 만들기
       parameters:
-        - $ref: "#/components/parameters/Actor"
+        - $ref: "#/components/parameters/Session"
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
@@ -295,6 +300,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Task" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "422": { $ref: "#/components/responses/IdempotencyReused" }
         "409":
           description: 같은 출처의 같은 이슈가 이미 있음 (두 번 가져오기)
           content:
@@ -324,7 +330,7 @@ paths:
       summary: 할 일 고치기 (제목·마감·마일스톤·진행 상태)
       description: 멈춤은 여기서 바꾸지 않고 `/block` 으로. 끝내면(status=done) 멈춘 이유·잡은 세션이 자동으로 지워진다.
       parameters:
-        - $ref: "#/components/parameters/Actor"
+        - $ref: "#/components/parameters/Session"
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
         required: true
@@ -346,7 +352,7 @@ paths:
       operationId: trashTask
       summary: 할 일 휴지통으로
       parameters:
-        - $ref: "#/components/parameters/Actor"
+        - $ref: "#/components/parameters/Session"
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "204": { description: 휴지통으로 감 }
@@ -360,7 +366,7 @@ paths:
       operationId: blockTask
       summary: 멈춤 걸기 (멈춘 이유 + 잡은 세션)
       parameters:
-        - $ref: "#/components/parameters/Actor"
+        - $ref: "#/components/parameters/Session"
       requestBody:
         required: true
         content:
@@ -392,7 +398,7 @@ paths:
       operationId: unblockTask
       summary: 멈춤 풀기
       parameters:
-        - $ref: "#/components/parameters/Actor"
+        - $ref: "#/components/parameters/Session"
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "200":
@@ -410,7 +416,7 @@ paths:
       operationId: reviveTask
       summary: 되살리기 (휴지통에서 꺼내거나, 끝난 일을 다시 할 일로)
       parameters:
-        - $ref: "#/components/parameters/Actor"
+        - $ref: "#/components/parameters/Session"
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "200":
@@ -455,9 +461,12 @@ components:
       type: http
       scheme: bearer
       description: |
-        단계 2-4 「나 혼자용 비밀 키」. `Authorization: Bearer <키>`.
-        키는 코드에 박지 않고 서버 설정 파일(.env)에 둔다. 만료·교체가 되게.
-        단계 1(내 맥 안에서만 열림)에서는 서버가 검사를 꺼 둘 수 있다.
+        도구별 출입증 (작가 결정 2026-10-25). `Authorization: Bearer <키>`.
+        - 도구마다 1장: author(화면) · claude · codex. 세션마다 만들지 않는다
+        - 서버는 키를 보고 「누가」를 스스로 정한다. 요청이 밝힌 이름은 믿지 않는다
+        - 키는 만들 때 한 번만 보이고, 서버에는 잠근 값(해시)만 저장
+        - 명령 두 개로 관리: 새 출입증 만들기 · 출입증 폐기
+        - 키는 저장소에 올리지 않는다 (각 도구 설정 파일, 올리지 않는 목록에 포함)
   parameters:
     ProjectId:
       name: projectId
@@ -474,29 +483,32 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
-    Actor:
-      name: X-Naeil-Actor
+    Session:
+      name: X-Naeil-Session
       in: header
-      required: true
+      required: false
       description: |
-        누가 바꿨나 (변경 기록의 「누가」). 예 author, claude, codex.
-        결정 필요: 지금은 헤더로 받고, 단계 2 로그인이 생기면 키마다 이름을 묶을지.
-      schema: { type: string, pattern: "^[a-z][a-z0-9-]{0,31}$" }
+        세션 이름표 (예 `session-3`). 출입증으로 정해진 도구 안에서 몇 번째 세션인지 스스로 밝힌다.
+        변경 기록에 「claude · session-3」처럼 남는다. 검사는 모양만 한다 (도구 이름은 키가 정함).
+      schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,31}$" }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
       required: false
       description: |
-        같은 요청을 다시 보내도 한 번만 만들어지게 하는 열쇠. AI 세션이 끊겨 다시 보낼 때 중복을 막는다.
-        결정 필요: 지금 넣을지.
-      schema: { type: string, maxLength: 64 }
+        같은 요청을 다시 보내도 한 번만 만들어지게 하는 열쇠 (작가 결정: 지금 넣기).
+        - 같은 열쇠 + 같은 내용 → 처음 응답을 그대로 다시 돌려줌 (새로 만들지 않음)
+        - 같은 열쇠 + 다른 내용 → 422
+        - 열쇠는 24시간 보관 후 지움. 출입증마다 따로 센다
+      schema: { type: string, minLength: 8, maxLength: 64 }
     IfMatch:
       name: If-Match
       in: header
       required: false
       description: |
-        읽은 뒤에 다른 세션이 먼저 고쳤으면 412 로 막는다 (서로 덮어쓰기 방지). 값은 GET 응답의 ETag.
-        결정 필요: 지금 넣을지, 필수로 할지.
+        덮어쓰기 막기 (작가 결정: 선택으로 받기). 값은 GET 응답의 ETag.
+        - 보내면: 읽은 뒤 다른 세션이 먼저 고쳤을 때 412 로 막는다
+        - 안 보내면: 검사 없이 고친다
       schema: { type: string }
     IncludeTrashed:
       name: includeTrashed
@@ -510,8 +522,8 @@ components:
       name: cursor
       in: query
       description: |
-        다음 묶음을 받는 표시. 앞 응답의 `nextCursor` 를 그대로 넣는다.
-        결정 필요: 표시 방식(이어 받기) vs 쪽 번호 방식.
+        다음 묶음을 받는 표시 (작가 결정: 커서). 앞 응답의 `nextCursor` 를 그대로 넣는다.
+        `nextCursor` 가 null 이면 끝. 속 내용은 서버만 읽는다 (모양이 바뀔 수 있음).
       schema: { type: string }
 
   headers:
@@ -537,6 +549,11 @@ components:
           schema: { $ref: "#/components/schemas/Problem" }
     PreconditionFailed:
       description: 읽은 뒤 다른 곳에서 먼저 고침 (다시 읽고 고칠 것)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    IdempotencyReused:
+      description: 같은 Idempotency-Key 를 다른 내용으로 다시 보냄
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
@@ -634,7 +651,8 @@ components:
       properties:
         id: { type: integer }
         at: { type: string, format: date-time }
-        actor: { type: string }
+        actor: { type: string, description: "출입증이 정한 도구 이름 (author, claude, codex)" }
+        session: { type: [string, "null"], description: "세션 이름표 (보냈을 때만)" }
         entity: { type: string, enum: [project, milestone, task] }
         entityId: { type: string }
         action: { type: string, description: "create, status, block, unblock, trash, revive 등" }
