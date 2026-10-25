@@ -21,7 +21,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      # 저장소 기록 전체를 훑는다. 첫 올리기에서도 돌도록 액션 대신 공식 이미지를 직접 쓴다.
       - name: 비밀 키 검사
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.21.2 git /repo --redact --verbose
