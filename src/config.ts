@@ -2,6 +2,7 @@
 export type Config = {
   host: string;
   port: number;
+  dbPath: string;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -10,5 +11,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`NAEIL_PORT 값이 잘못됨: ${env.NAEIL_PORT}`);
   }
   // 기본은 이 컴퓨터 안에서만 열림. 폰 접속은 단계 2에서 Tailscale 주소로만 연다.
-  return { host: env.NAEIL_HOST ?? "127.0.0.1", port };
+  // 데이터베이스 파일은 아이클라우드 동기화 폴더(문서·데스크탑) 밖에 둔다.
+  return { host: env.NAEIL_HOST ?? "127.0.0.1", port, dbPath: env.NAEIL_DB ?? "data/naeil.db" };
 }

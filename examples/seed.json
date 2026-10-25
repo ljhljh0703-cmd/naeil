@@ -1,0 +1,14 @@
+{
+  "_note": "예시 데이터만. 실제 할 일은 저장소에 넣지 않는다.",
+  "projects": [
+    {
+      "name": "예시 게임",
+      "milestones": [{ "name": "첫 공개판", "due_at": "2026-11-30T15:00:00.000Z" }],
+      "tasks": [
+        { "title": "시작 화면 만들기", "milestone": "첫 공개판" },
+        { "title": "소리 크기 조절 넣기", "milestone": "첫 공개판" },
+        { "title": "플레이어 제보 정리", "source": "github", "source_ref": "example/game#1", "external_text": true }
+      ]
+    }
+  ]
+}
