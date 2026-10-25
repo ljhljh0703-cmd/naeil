@@ -16,7 +16,8 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "vitest run",
-    "check": "npm run lint && npm run typecheck && npm test"
+    "check": "npm run lint && npm run typecheck && npm test",
+    "lint:api": "npx -y @redocly/cli@1 lint docs/api/openapi.yaml"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
