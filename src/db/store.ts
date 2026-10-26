@@ -90,7 +90,19 @@ export type TaskPatch = {
 type Clock = () => Date;
 
 // 시각은 어떤 모양으로 와도 세계 표준시 한 가지 모양으로 저장한다 (+09:00, 공백 구분 등)
-const utc = (v: string | null | undefined) => (v == null ? null : new Date(v).toISOString());
+const utc = (v: string | null | undefined) => {
+  if (v == null) return null;
+  const date = new Date(v);
+  // 런타임 변환 실패와 UTC 변환 후 응답 명세의 네 자리 연도를 벗어나는 값은 입력 오류다.
+  if (
+    !Number.isFinite(date.getTime()) ||
+    date.getUTCFullYear() < 0 ||
+    date.getUTCFullYear() > 9999
+  ) {
+    throw new BadInput("dueAt을 저장 가능한 시각으로 보내세요 (예: 2026-11-01T09:00:00+09:00)");
+  }
+  return date.toISOString();
+};
 
 function norm(who: Who): { actor: string; session: string | null } {
   return typeof who === "string" ? { actor: who, session: null } : { session: null, ...who };

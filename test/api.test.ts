@@ -913,3 +913,107 @@ describe("프로젝트·마일스톤", () => {
     }
   });
 });
+
+describe("코드 점검 회귀: 저장 실패·날짜 변환", () => {
+  it("재시도 기록 저장 실패는 생성과 변경 기록도 되돌린다", async () => {
+    const p = await newProject("재시도 시험");
+    const cases = [
+      ["/v1/projects", "/v1/projects", { name: "새 프로젝트" }],
+      ["/v1/projects/{projectId}/milestones", `/v1/projects/${p}/milestones`, { name: "새 목표" }],
+      ["/v1/tasks", "/v1/tasks", { projectId: p, title: "새 할 일" }],
+    ] as const;
+    const snapshot = () => ({
+      projects: db.prepare("SELECT * FROM projects ORDER BY id").all(),
+      milestones: db.prepare("SELECT * FROM milestones ORDER BY id").all(),
+      tasks: db.prepare("SELECT * FROM tasks ORDER BY id").all(),
+      changes: db.prepare("SELECT * FROM change_log ORDER BY id").all(),
+      retries: db.prepare("SELECT * FROM idempotency_keys ORDER BY idem_key").all(),
+    });
+    for (const [index, [path, url, body]] of cases.entries()) {
+      const before = snapshot();
+      const opts = { url, body, headers: { "idempotency-key": `rollback-case-${index}` } };
+      db.exec(
+        "CREATE TRIGGER fail_retry BEFORE INSERT ON idempotency_keys BEGIN SELECT RAISE(ABORT, 'test retry failure'); END",
+      );
+      const failed = await call("POST", path, opts);
+      expect(failed.statusCode).toBe(500);
+      expect(snapshot()).toEqual(before);
+      db.exec("DROP TRIGGER fail_retry");
+      const retry = await call("POST", path, opts);
+      expect(retry.statusCode).toBe(201);
+      const repeated = await call("POST", path, opts);
+      expect(repeated.json()).toEqual(retry.json());
+      expect(repeated.headers["idempotent-replayed"]).toBe("true");
+      const after = snapshot();
+      expect(after.changes).toHaveLength(before.changes.length + 1);
+      expect(after.retries).toHaveLength(before.retries.length + 1);
+      expect(after.projects.length + after.milestones.length + after.tasks.length).toBe(
+        before.projects.length + before.milestones.length + before.tasks.length + 1,
+      );
+    }
+  });
+
+  it("날짜 검사 뒤 변환할 수 없는 시각은 400이며 데이터는 유지한다", async () => {
+    const p = await newProject("날짜 시험");
+    const m = new Store(db).createMilestone("fixture", p, "기존 목표");
+    const t = await newTask(p);
+    const snapshot = () => ({
+      milestones: db.prepare("SELECT * FROM milestones ORDER BY id").all(),
+      tasks: db.prepare("SELECT * FROM tasks ORDER BY id").all(),
+      changes: db.prepare("SELECT * FROM change_log ORDER BY id").all(),
+    });
+    const before = snapshot();
+    for (const dueAt of [
+      "2026-11-02T08:00:00+09",
+      "2016-12-31T23:59:60Z",
+      "0000-01-01T00:00:00+01:00",
+      "9999-12-31T23:59:59-01:00",
+    ]) {
+      for (const [method, path, url, body] of [
+        [
+          "POST",
+          "/v1/projects/{projectId}/milestones",
+          `/v1/projects/${p}/milestones`,
+          { name: "새 목표", dueAt },
+        ],
+        [
+          "PATCH",
+          "/v1/milestones/{milestoneId}",
+          `/v1/milestones/${m}`,
+          { name: "바뀌면 안 됨", dueAt },
+        ],
+        ["POST", "/v1/tasks", "/v1/tasks", { projectId: p, title: "새 할 일", dueAt }],
+        ["PATCH", "/v1/tasks/{taskId}", `/v1/tasks/${t}`, { title: "바뀌면 안 됨", dueAt }],
+      ] as const) {
+        const res = await call(method, path, { url, body });
+        expect(res.statusCode).toBe(400);
+        expect(snapshot()).toEqual(before);
+      }
+    }
+  });
+});
+
+describe("날짜 표현의 연도 경계", () => {
+  it("UTC 0000년과 9999년 안의 시각은 그대로 저장한다", async () => {
+    const p = await newProject("연도 경계 시험");
+    const m = new Store(db).createMilestone("fixture", p, "목표");
+    const t = await newTask(p);
+    for (const dueAt of ["0000-01-01T00:00:00Z", "9999-12-31T23:59:59Z"]) {
+      for (const [method, path, url, body] of [
+        [
+          "POST",
+          "/v1/projects/{projectId}/milestones",
+          `/v1/projects/${p}/milestones`,
+          { name: "목표", dueAt },
+        ],
+        ["PATCH", "/v1/milestones/{milestoneId}", `/v1/milestones/${m}`, { dueAt }],
+        ["POST", "/v1/tasks", "/v1/tasks", { projectId: p, title: "할 일", dueAt }],
+        ["PATCH", "/v1/tasks/{taskId}", `/v1/tasks/${t}`, { dueAt }],
+      ] as const) {
+        const res = await call(method, path, { url, body });
+        expect(res.statusCode).toBe(method === "POST" ? 201 : 200);
+        expect(res.json().dueAt).toBe(dueAt.replace("Z", ".000Z"));
+      }
+    }
+  });
+});

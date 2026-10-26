@@ -236,14 +236,19 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
         query: req.query,
         body: req.body,
       });
-      const prev = idem.find(key.workspace, key.name, idemKey, hash);
-      if (prev) {
-        if (prev.location) reply.header("Location", prev.location);
-        return reply.code(prev.status).header("Idempotent-Replayed", "true").send(prev.body);
-      }
-      const res = run();
-      idem.save(key.workspace, key.name, idemKey, hash, res);
+      // 생성·변경 기록·재시도 응답을 함께 저장한다. 마지막 저장이 실패해도 행이 남지 않게.
+      // 시작부터 쓰기 잠금을 잡아 다른 프로세스의 같은 요청도 하나씩 처리한다.
+      const { res, replayed } = db
+        .transaction(() => {
+          const prev = idem.find(key.workspace, key.name, idemKey, hash);
+          if (prev) return { res: prev, replayed: true };
+          const res = run();
+          idem.save(key.workspace, key.name, idemKey, hash, res);
+          return { res, replayed: false };
+        })
+        .immediate();
       if (res.location) reply.header("Location", res.location);
+      if (replayed) reply.header("Idempotent-Replayed", "true");
       return reply.code(res.status).send(res.body);
     }
     const res = run();
