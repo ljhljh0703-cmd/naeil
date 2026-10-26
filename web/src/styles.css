@@ -1,36 +1,73 @@
-/* 내일은내일 화면. 한 번에 하나만 크게 (지금 할 것), 나머지는 작게. */
+/* 내일은내일 화면 기준 (2026-10-26)
+ * 근거: 토스·29CM 실측 해체(vault 2026-10-19) + 작가 웹 레퍼런스 결정(토스·29CM).
+ * - 글꼴 하나(Wanted Sans, OFL, 저장소 안에 들어 있어 사내망에서도 뜸), 굵기 400·700 두 개
+ * - 글자색 세 단계(진함·중간·옅음), 투명도로 회색을 만들지 않는다
+ * - 간격은 4·8·12·16·24·32·48 안에서만
+ * - 강조색 한 가지, 「지금 할 것」 버튼과 「하는 중」 표시에만
+ * 색·둥글기·선은 아래 토큰만 바꾸면 화면 전체가 바뀐다. */
 :root {
-  --bg: #f4f5f7;
+  /* 바탕·면 */
+  --bg: #f2f4f6;
   --card: #ffffff;
-  --text: #191f28;
-  --sub: #6b7684;
+  --card-line: transparent;
+  /* 글자 세 단계 */
+  --ink: #191f28;
+  --ink-2: #4e5968;
+  --ink-3: #8b95a1;
+  /* 선 */
   --line: #e5e8eb;
-  --accent: #2f6fed;
-  --accent-soft: #e8f0fe;
+  /* 강조 한 가지 */
+  --accent: #4b4ad1;
+  --accent-soft: #ececfb;
   --on-accent: #ffffff;
-  --warn: #d97706;
-  --late: #e5484d;
-  --radius: 18px;
+  /* 상태 */
+  --warn: #b45309;
+  --late: #d1393e;
+  /* 둥글기 */
+  --r-card: 20px;
+  --r-ctl: 12px;
+  --r-chip: 999px;
+  /* 간격 */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  /* 글자 크기 */
+  --t-meta: 13px;
+  --t-small: 14px;
+  --t-body: 15px;
+  --t-title: 17px;
+  --t-hero: 30px;
+
   color-scheme: light;
   font-family:
-    Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", system-ui,
+    "Wanted Sans Variable", "Wanted Sans", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
     sans-serif;
-  color: var(--text);
+  font-size: var(--t-body);
+  line-height: 1.55;
+  color: var(--ink);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+  word-break: keep-all;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #101113;
-    --card: #1b1d21;
-    --text: #eceef1;
-    --sub: #9aa1ab;
+    --bg: #101114;
+    --card: #1a1c20;
+    --ink: #eceef1;
+    --ink-2: #b4bac4;
+    --ink-3: #868d98;
     --line: #2a2d33;
-    --accent: #6c9bff;
-    --accent-soft: #1d2a45;
-    /* 밝은 파랑 위 흰 글씨는 대비가 낮아서, 어두운 화면에서는 진한 글씨 */
-    --on-accent: #0b1530;
+    --accent: #8e8cf5;
+    --accent-soft: #24234a;
+    /* 밝은 강조색 위 흰 글씨는 대비가 낮아서, 어두운 화면에서는 진한 글씨 */
+    --on-accent: #0d0c2b;
+    --warn: #f0a24a;
+    --late: #ff7a7e;
     color-scheme: dark;
   }
 }
@@ -47,10 +84,10 @@ body {
 .shell {
   max-width: 960px;
   margin: 0 auto;
-  padding: 32px 16px 64px;
+  padding: var(--s6) var(--s4) var(--s7);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--s4);
 }
 
 .shell.narrow {
@@ -61,11 +98,11 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  padding: 0 4px 8px;
+  padding: 0 var(--s1) var(--s2);
 }
 
 h1 {
-  font-size: 15px;
+  font-size: var(--t-title);
   font-weight: 700;
   margin: 0;
 }
@@ -73,63 +110,66 @@ h1 {
 .tagline,
 .date {
   margin: 2px 0 0;
-  color: var(--sub);
-  font-size: 13px;
+  color: var(--ink-3);
+  font-size: var(--t-meta);
 }
 
 .card {
   background: var(--card);
-  border-radius: var(--radius);
-  padding: 20px 22px;
+  border: 1px solid var(--card-line);
+  border-radius: var(--r-card);
+  padding: var(--s5);
 }
 
 .hero {
-  padding: 28px 26px;
+  padding: var(--s6) var(--s6) var(--s5);
 }
 
 .label {
-  margin: 0 0 12px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--sub);
+  margin: 0 0 var(--s3);
+  font-size: var(--t-meta);
+  font-weight: 700;
+  color: var(--ink-2);
 }
 
 .count {
-  color: var(--accent);
-  margin-left: 4px;
+  color: var(--ink-3);
+  margin-left: var(--s1);
+  font-variant-numeric: tabular-nums;
 }
 
 h2 {
-  margin: 0 0 8px;
-  font-size: 18px;
+  margin: 0 0 var(--s2);
+  font-size: var(--t-title);
+  font-weight: 700;
 }
 
 .now {
-  font-size: 28px;
+  font-size: var(--t-hero);
   line-height: 1.3;
   letter-spacing: -0.02em;
-  word-break: keep-all;
 }
 
 .meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin: 0 0 20px;
-  color: var(--sub);
-  font-size: 14px;
+  gap: var(--s2);
+  margin: 0 0 var(--s5);
+  color: var(--ink-2);
+  font-size: var(--t-small);
 }
 
 .chip {
   display: inline-block;
-  padding: 3px 9px;
-  border-radius: 999px;
+  padding: 2px var(--s2);
+  border-radius: var(--r-chip);
   background: var(--bg);
-  color: var(--sub);
-  font-size: 12px;
-  font-weight: 600;
+  color: var(--ink-2);
+  font-size: var(--t-meta);
+  font-weight: 700;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .chip.doing {
@@ -148,12 +188,15 @@ h2 {
 .grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  gap: var(--s4);
 }
 
 @media (max-width: 760px) {
   .grid {
     grid-template-columns: 1fr;
+  }
+  .hero {
+    padding: var(--s5);
   }
   .now {
     font-size: 24px;
@@ -163,23 +206,24 @@ h2 {
 .row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--s2);
 }
 
 button,
 input,
 select {
   font: inherit;
-  font-size: 14px;
-  color: var(--text);
+  font-size: var(--t-small);
+  color: var(--ink);
 }
 
 button {
   border: 0;
-  border-radius: 12px;
-  padding: 10px 16px;
+  border-radius: var(--r-ctl);
+  padding: 10px var(--s4);
+  min-height: 40px;
   background: var(--bg);
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -206,25 +250,27 @@ button.primary {
 
 button.ghost {
   background: transparent;
-  color: var(--sub);
+  color: var(--ink-2);
 }
 
 button.small {
-  padding: 6px 10px;
-  font-size: 13px;
+  min-height: 32px;
+  padding: 6px var(--s3);
+  font-size: var(--t-meta);
 }
 
 button.wide {
   width: 100%;
   text-align: left;
-  padding: 4px 0;
+  padding: var(--s1) 0;
 }
 
 input,
 select {
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 10px 12px;
+  border-radius: var(--r-ctl);
+  padding: 10px var(--s3);
+  min-height: 40px;
   background: var(--card);
   min-width: 0;
 }
@@ -232,7 +278,7 @@ select {
 .add {
   display: grid;
   grid-template-columns: 1fr auto auto auto;
-  gap: 8px;
+  gap: var(--s2);
 }
 
 .add input[aria-label="새 프로젝트 이름"] {
@@ -252,62 +298,63 @@ select {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  font-size: 14px;
+  gap: var(--s3);
+  font-size: var(--t-small);
 }
 
 .list li {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 8px;
+  gap: var(--s1) var(--s2);
   align-items: center;
 }
 
 .list .what {
   flex: 1 1 auto;
   min-width: 0;
-  word-break: keep-all;
 }
 
 .list .when,
 .list .who {
-  color: var(--sub);
-  font-size: 12px;
+  color: var(--ink-3);
+  font-size: var(--t-meta);
+  font-variant-numeric: tabular-nums;
 }
 
 .list.all {
-  margin-top: 12px;
+  margin-top: var(--s3);
 }
 
 .list.all select {
-  padding: 4px 8px;
-  font-size: 13px;
+  min-height: 32px;
+  padding: var(--s1) var(--s2);
+  font-size: var(--t-meta);
 }
 
 .done {
-  color: var(--sub);
+  color: var(--ink-3);
   text-decoration: line-through;
 }
 
 .muted {
-  color: var(--sub);
+  color: var(--ink-3);
 }
 
 .small-text {
-  font-size: 12px;
+  font-size: var(--t-meta);
 }
 
 .error {
   margin: 0;
-  padding: 12px 16px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--late) 12%, var(--card));
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-ctl);
+  background: color-mix(in srgb, var(--late) 10%, var(--card));
   color: var(--late);
-  font-size: 14px;
+  font-size: var(--t-small);
 }
 
 code {
-  font-size: 13px;
+  font-size: var(--t-meta);
   background: var(--bg);
   padding: 2px 6px;
   border-radius: 6px;
