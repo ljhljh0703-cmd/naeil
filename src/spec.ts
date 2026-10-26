@@ -1,9 +1,11 @@
 // 명세서(docs/api/openapi.yaml)를 읽어 서버 입력 검사에 그대로 쓴다.
 // 입력 규칙의 원본은 명세서 하나. 코드에 같은 규칙을 다시 적지 않는다.
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
-export const SPEC_PATH = new URL("../docs/api/openapi.yaml", import.meta.url).pathname;
+export const SPEC_PATH = fileURLToPath(new URL("../docs/api/openapi.yaml", import.meta.url));
+// (.pathname 은 공백·한글 경로를 %20·%EC.. 로 남겨서 파일을 못 찾는다)
 export const SPEC_ID = "naeil-spec";
 
 type Param = { name: string; in: string; required?: boolean; schema?: unknown; $ref?: string };

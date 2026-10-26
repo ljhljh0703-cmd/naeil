@@ -393,6 +393,98 @@ describe("목록 나누기 (커서)", () => {
   });
 });
 
+describe("검토에서 나온 구멍 (2026-10-26)", () => {
+  it("고쳐 쓴 커서는 서버 오류(500)가 아닌 400", async () => {
+    const bad = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64url");
+    for (const c of [bad({ c: {}, i: "x" }), bad(1), bad({ i: "zzz" })]) {
+      const res = await call("GET", "/v1/tasks", { url: `/v1/tasks?cursor=${c}` });
+      expect(res.statusCode, c).toBe(400);
+    }
+    const ch = await call("GET", "/v1/changes", { url: `/v1/changes?cursor=${bad({ i: true })}` });
+    expect(ch.statusCode).toBe(400);
+  });
+
+  it("빈 잡은 세션은 400", async () => {
+    const id = await newTask(await newProject());
+    const res = await call("PUT", "/v1/tasks/{taskId}/block", {
+      url: `/v1/tasks/${id}/block`,
+      body: { reason: "external", heldBy: "" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("마감 시각은 세계 표준시로 바꿔 저장", async () => {
+    const p = await newProject();
+    const res = await call("POST", "/v1/tasks", {
+      body: { projectId: p, title: "x", dueAt: "2026-10-25T05:00:00+09:00" },
+    });
+    expect(res.json().dueAt).toBe("2026-10-24T20:00:00.000Z");
+  });
+
+  it("본문의 형이 틀리면 바꾸지 않고 거절", async () => {
+    const p = await newProject();
+    for (const body of [
+      { projectId: p, title: 123 },
+      { projectId: p, title: ["배열"] },
+      { projectId: p, title: "x", externalText: "true" },
+    ]) {
+      const res = await call("POST", "/v1/tasks", { body });
+      expect(res.statusCode, JSON.stringify(body)).toBe(400);
+    }
+  });
+
+  it("If-Match: 약한 표시는 안 맞음, 여러 개 중 하나 맞으면 통과", async () => {
+    const id = await newTask(await newProject());
+    const url = `/v1/tasks/${id}`;
+    const weak = await call("PATCH", "/v1/tasks/{taskId}", {
+      url,
+      headers: { "if-match": 'W/"v1"' },
+      body: { title: "a" },
+    });
+    expect(weak.statusCode).toBe(412);
+    const list = await call("PATCH", "/v1/tasks/{taskId}", {
+      url,
+      headers: { "if-match": '"v9", "v1"' },
+      body: { title: "b" },
+    });
+    expect(list.statusCode).toBe(200);
+  });
+
+  it("같은 열쇠로 칸 순서만 바꿔 다시 보내면 처음 응답", async () => {
+    const p = await newProject();
+    const h = { "idempotency-key": "retry-order" };
+    const a = await call("POST", "/v1/tasks", {
+      headers: h,
+      body: { projectId: p, title: "순서" },
+    });
+    const b = await call("POST", "/v1/tasks", {
+      headers: h,
+      body: { title: "순서", projectId: p },
+    });
+    expect(b.statusCode).toBe(201);
+    expect(b.json().id).toBe(a.json().id);
+  });
+
+  it("서버 틀이 내는 오류도 종류 이름이 맞다 (415)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/projects",
+      headers: { ...H(authorKey), "content-type": "application/xml" },
+      payload: "x",
+    });
+    expect(res.statusCode).toBe(415);
+    expect(res.json().type).toContain("#unsupported-type");
+  });
+
+  it("멈춘 게 없는데 풀거나, 살아 있는 걸 되살리면 아무것도 안 바뀜", async () => {
+    const id = await newTask(await newProject());
+    await call("DELETE", "/v1/tasks/{taskId}/block", { url: `/v1/tasks/${id}/block` });
+    await call("POST", "/v1/tasks/{taskId}/revive", { url: `/v1/tasks/${id}/revive` });
+    const res = await call("GET", "/v1/tasks/{taskId}", { url: `/v1/tasks/${id}` });
+    expect(res.headers.etag).toBe('"v1"');
+  });
+});
+
 describe("프로젝트", () => {
   it("만들기·목록·하나 보기", async () => {
     const id = await newProject("젤리 패닉");

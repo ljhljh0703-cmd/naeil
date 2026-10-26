@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
 import fastifyStatic from "@fastify/static";
+import AjvModule from "ajv";
+import formatsModule from "ajv-formats";
 import type Database from "better-sqlite3";
 import Fastify, {
   type FastifyInstance,
@@ -22,6 +24,10 @@ import {
 import { AppError, ERROR_DOCS, NotFound, Unauthorized, VersionMismatch } from "./errors.js";
 import { IdempotencyStore, requestHash } from "./idempotency.js";
 import { routeSchema, specSchemaBundle, toFastifyPath } from "./spec.js";
+
+// 옛 방식(CommonJS) 꾸러미라 .default 로 꺼낸다
+const Ajv = AjvModule.default;
+const addFormats = formatsModule.default;
 
 export const TAGLINE = "내 일은 naeil에서";
 
@@ -82,12 +88,20 @@ export const toChange = (c: ChangeRow) => ({
 const etag = (t: Task) => `"v${t.version}"`;
 
 // If-Match: 없으면 검사 안 함(작가 결정: 선택). 「*」 도 검사 안 함.
-function expectedVersion(header: string | undefined): number | undefined {
-  if (header === undefined || header.trim() === "*") return undefined;
-  const m = /^(?:W\/)?"v(\d+)"$/.exec(header.trim());
-  if (!m) throw new VersionMismatch();
-  return Number(m[1]);
+// If-Match 는 강한 비교(RFC 9110): 약한 표시(W/"…")는 맞는 것으로 치지 않는다. 여러 개를 쉼표로 보내면 하나라도 맞으면 통과.
+function matchesIfMatch(header: string | undefined, current: number): boolean {
+  if (header === undefined || header.trim() === "*") return true;
+  return header.split(",").some((tag) => tag.trim() === `"v${current}"`);
 }
+
+// 서버 틀(Fastify)이 직접 내는 4xx 의 종류 이름
+const HTTP_PROBLEMS: Record<number, [string, string]> = {
+  403: ["forbidden", "열 수 없음"],
+  404: ["not-found", "없음"],
+  405: ["method-not-allowed", "이 주소에서 쓸 수 없는 방법"],
+  413: ["too-large", "보낸 내용이 너무 큼"],
+  415: ["unsupported-type", "받지 않는 내용 종류 (application/json 으로)"],
+};
 
 function sendProblem(reply: FastifyReply, err: AppError, instance?: string) {
   return reply
@@ -100,6 +114,19 @@ function sendProblem(reply: FastifyReply, err: AppError, instance?: string) {
       detail: err.message,
       ...(instance ? { instance } : {}),
     });
+}
+
+// 명세서의 additionalProperties: false 를 「조용히 지우기」가 아니라 「거절」로
+function makeAjv(coerce: boolean) {
+  const ajv = new Ajv({
+    coerceTypes: coerce,
+    useDefaults: true,
+    removeAdditional: false,
+    strict: false,
+  });
+  addFormats(ajv);
+  ajv.addSchema(specSchemaBundle());
+  return ajv;
 }
 
 export function buildApp(options: AppOptions = {}): FastifyInstance {
@@ -119,12 +146,14 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 
   const app = Fastify({
     logger: options.logger ?? false,
-    ajv: {
-      // 명세서의 additionalProperties: false 를 「조용히 지우기」가 아니라 「거절」로
-      customOptions: { removeAdditional: false, strict: false },
-    },
   });
-  app.addSchema(specSchemaBundle());
+  // 검사기를 둘로 나눈다. 본문(JSON)은 형을 바꾸지 않고 거절하고(123 → "123" 금지),
+  // 주소 뒤 조건(?limit=20)과 머리말은 글자로만 오므로 숫자·참거짓으로 바꿔 읽는다.
+  const bodyAjv = makeAjv(false);
+  const otherAjv = makeAjv(true);
+  app.setValidatorCompiler(({ schema, httpPart }) =>
+    (httpPart === "body" ? bodyAjv : otherAjv).compile(schema),
+  );
   app.decorateRequest("key", null);
   app.decorateRequest("who", null as unknown as FastifyRequest["who"]);
 
@@ -133,11 +162,8 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     if (err instanceof AppError) return sendProblem(reply, err, req.url);
     const e = err as { statusCode?: number; validation?: unknown; message: string };
     if (e.statusCode && e.statusCode >= 400 && e.statusCode < 500) {
-      return sendProblem(
-        reply,
-        new AppError(e.statusCode, "bad-input", "입력 규칙 위반", e.message),
-        req.url,
-      );
+      const [slug, title] = HTTP_PROBLEMS[e.statusCode] ?? ["bad-input", "입력 규칙 위반"];
+      return sendProblem(reply, new AppError(e.statusCode, slug, title, e.message), req.url);
     }
     req.log.error(err);
     return sendProblem(
@@ -191,7 +217,11 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     const idemKey = req.headers["idempotency-key"];
     const key = req.key as KeyInfo;
     if (typeof idemKey === "string") {
-      const hash = requestHash(req.method, req.url, req.body);
+      const hash = requestHash(req.method, req.routeOptions.url ?? req.url, {
+        params: req.params,
+        query: req.query,
+        body: req.body,
+      });
       const prev = idem.find(key.workspace, key.name, idemKey, hash);
       if (prev) {
         if (prev.location) reply.header("Location", prev.location);
@@ -253,7 +283,12 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
       limit: number;
       cursor?: string;
     };
-    const after = q.cursor ? decodeCursor<{ c: string; i: string }>(q.cursor) : undefined;
+    const after = q.cursor
+      ? decodeCursor<{ c: string; i: string }>(
+          q.cursor,
+          (v) => typeof v?.c === "string" && typeof v?.i === "string",
+        )
+      : undefined;
     const rows = storeFor(req).listTasks({
       ...q,
       limit: q.limit + 1,
@@ -285,11 +320,17 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
   route("PATCH", "/v1/tasks/{taskId}", async (req, reply) => {
     const { taskId } = req.params as { taskId: string };
     const ifMatch = req.headers["if-match"];
-    storeFor(req).updateTask(
+    const s = storeFor(req);
+    const before = s.getTask(taskId);
+    if (!before) throw new NotFound(`할 일이 없음: ${taskId}`);
+    const header = typeof ifMatch === "string" ? ifMatch : undefined;
+    if (!matchesIfMatch(header, before.version)) throw new VersionMismatch();
+    // 읽은 판 번호를 같이 넘겨, 검사와 고치기 사이에 다른 요청이 끼어도 덮어쓰지 않게
+    s.updateTask(
       req.who,
       taskId,
       req.body as TaskPatch,
-      expectedVersion(typeof ifMatch === "string" ? ifMatch : undefined),
+      header === undefined ? undefined : before.version,
     );
     return sendTask(req, reply, taskId);
   });
@@ -322,7 +363,9 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
   // ── 변경 기록 (읽기만) ──
   route("GET", "/v1/changes", async (req) => {
     const q = req.query as { actor?: string; limit: number; cursor?: string };
-    const before = q.cursor ? decodeCursor<{ i: number }>(q.cursor) : undefined;
+    const before = q.cursor
+      ? decodeCursor<{ i: number }>(q.cursor, (v) => Number.isInteger(v?.i))
+      : undefined;
     const rows = storeFor(req).listChanges({
       actor: q.actor,
       limit: q.limit + 1,

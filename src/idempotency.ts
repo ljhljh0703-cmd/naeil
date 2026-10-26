@@ -11,9 +11,23 @@ const KEEP_MS = 24 * 60 * 60 * 1000;
 
 export type Stored = { status: number; body: unknown; location: string | null };
 
-export function requestHash(method: string, url: string, body: unknown): string {
+// 칸 순서만 다른 같은 내용은 같은 것으로 본다 ({a,b} = {b,a})
+function canonical(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(canonical);
+  if (v && typeof v === "object") {
+    return Object.fromEntries(
+      Object.keys(v)
+        .sort()
+        .map((k) => [k, canonical((v as Record<string, unknown>)[k])]),
+    );
+  }
+  return v ?? null;
+}
+
+// route = 찾아간 주소 틀(/v1/tasks), input = 번호·조건·본문. 주소 글자 바꿔 쓰기와 칸 순서에 흔들리지 않는다.
+export function requestHash(method: string, route: string, input: unknown): string {
   return createHash("sha256")
-    .update(`${method} ${url}\n${JSON.stringify(body ?? null)}`)
+    .update(`${method} ${route}\n${JSON.stringify(canonical(input))}`)
     .digest("hex");
 }
 

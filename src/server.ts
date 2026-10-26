@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { openDb } from "./db/connection.js";
@@ -14,7 +15,7 @@ const config = loadConfig();
 const app = buildApp({
   logger: true,
   db: openDb(config.dbPath),
-  webDir: new URL("../web/dist", import.meta.url).pathname,
+  webDir: fileURLToPath(new URL("../web/dist", import.meta.url)),
 });
 
 app.listen({ host: config.host, port: config.port }).catch((err) => {

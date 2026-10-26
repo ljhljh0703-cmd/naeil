@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { beforeEach, describe, expect, it } from "vitest";
 import { applied, migrateDownOne, migrateUp } from "../src/db/migrate.js";
@@ -128,7 +129,7 @@ describe("할 일", () => {
 describe("예시 데이터", () => {
   it("예시 파일이 들어가고 바깥 글 표시가 붙는다", () => {
     const db = freshDb();
-    seed(db, new URL("../examples/seed.json", import.meta.url).pathname);
+    seed(db, fileURLToPath(new URL("../examples/seed.json", import.meta.url)));
     const tasks = new Store(db).listTasks();
     expect(tasks).toHaveLength(3);
     expect(tasks.filter((t) => t.external_text === 1)).toHaveLength(1);

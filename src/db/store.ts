@@ -72,6 +72,9 @@ export type TaskPatch = {
 
 type Clock = () => Date;
 
+// 시각은 어떤 모양으로 와도 세계 표준시 한 가지 모양으로 저장한다 (+09:00, 공백 구분 등)
+const utc = (v: string | null | undefined) => (v == null ? null : new Date(v).toISOString());
+
 function norm(who: Who): { actor: string; session: string | null } {
   return typeof who === "string" ? { actor: who, session: null } : { session: null, ...who };
 }
@@ -144,7 +147,7 @@ export class Store {
       .prepare(
         "INSERT INTO milestones (id, workspace_id, project_id, name, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(id, this.workspace, projectId, name, dueAt ?? null, t, t);
+      .run(id, this.workspace, projectId, name, utc(dueAt), t, t);
     this.log(who, "milestone", id, "create", { name, due_at: dueAt ?? null });
     return id;
   }
@@ -191,7 +194,7 @@ export class Store {
           input.projectId,
           input.milestoneId ?? null,
           input.title,
-          input.dueAt ?? null,
+          utc(input.dueAt),
           input.source ?? "direct",
           input.sourceRef ?? null,
           input.externalText ? 1 : 0,
@@ -290,8 +293,8 @@ export class Store {
     }
     if (patch.dueAt !== undefined) {
       sets.push("due_at = ?");
-      args.push(patch.dueAt);
-      changed.due_at = patch.dueAt;
+      args.push(utc(patch.dueAt));
+      changed.due_at = utc(patch.dueAt);
     }
     if (patch.milestoneId !== undefined) {
       sets.push("milestone_id = ?");
@@ -307,7 +310,11 @@ export class Store {
     this.db.transaction(() => {
       this.bump(id, expectedVersion, sets.join(", "), args);
       if (patch.status !== undefined && patch.status !== before.status) {
-        this.log(who, "task", id, "status", { from: before.status, to: patch.status });
+        const cleared =
+          patch.status === "done" && before.blocked_reason
+            ? { cleared_block: before.blocked_reason }
+            : {};
+        this.log(who, "task", id, "status", { from: before.status, to: patch.status, ...cleared });
       }
       if (Object.keys(changed).length) this.log(who, "task", id, "update", changed);
     })();
@@ -322,7 +329,7 @@ export class Store {
     if (before.status === "done") {
       throw new RuleViolation("blocked-done", "끝난 일에는 멈춘 이유를 붙이지 않는다");
     }
-    if (heldBy && reason !== "ai_working") {
+    if (heldBy !== undefined && reason !== "ai_working") {
       throw new RuleViolation("held-by-not-ai", "잡은 세션은 「AI가 하는 중」일 때만");
     }
     this.db.transaction(() => {
@@ -332,7 +339,7 @@ export class Store {
   }
 
   unblock(who: Who, id: string): void {
-    this.mustTask(id);
+    if (!this.mustTask(id).blocked_reason) return; // 멈춘 게 없으면 바꿀 것도 없음
     this.db.transaction(() => {
       this.bump(id, undefined, "blocked_reason = NULL, held_by = NULL", []);
       this.log(who, "task", id, "unblock");
@@ -350,7 +357,8 @@ export class Store {
 
   // 되살리기: 휴지통에서 꺼내거나, 끝난 일을 다시 연다.
   revive(who: Who, id: string): void {
-    this.mustTask(id, { includeTrashed: true });
+    const t = this.mustTask(id, { includeTrashed: true });
+    if (!t.deleted_at && t.status !== "done") return; // 이미 살아 있음
     this.db.transaction(() => {
       this.bump(
         id,
