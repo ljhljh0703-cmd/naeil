@@ -112,6 +112,7 @@ paths:
       summary: 프로젝트 하나
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "200":
           description: 프로젝트
           content:
@@ -153,6 +154,7 @@ paths:
         - $ref: "#/components/parameters/Session"
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "204": { description: 휴지통으로 감 }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -165,6 +167,7 @@ paths:
       summary: 프로젝트의 마일스톤 목록
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "200":
           description: 목록 (마감 빠른 순)
           content:
@@ -245,6 +248,7 @@ paths:
         - $ref: "#/components/parameters/Session"
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "204": { description: 휴지통으로 감 }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -316,6 +320,7 @@ paths:
       summary: 할 일 하나
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "200":
           description: 할 일
           headers:
@@ -355,6 +360,7 @@ paths:
         - $ref: "#/components/parameters/Session"
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "204": { description: 휴지통으로 감 }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -382,6 +388,7 @@ paths:
                   description: 「AI가 하는 중」(ai_working)일 때만. 예 claude, codex
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "200":
           description: 멈춘 할 일
           content:
@@ -401,6 +408,7 @@ paths:
         - $ref: "#/components/parameters/Session"
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "200":
           description: 풀린 할 일
           content:
@@ -419,6 +427,7 @@ paths:
         - $ref: "#/components/parameters/Session"
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "200":
           description: 되살린 할 일
           content:
@@ -662,7 +671,7 @@ components:
       description: 오류 한 가지 모양 (RFC 9457)
       required: [type, title, status]
       properties:
-        type: { type: string, description: "오류 종류 주소 (예 https://naeil.dev/errors/blocked-done)" }
+        type: { type: string, description: "오류 종류 설명 주소 (예 …/docs/errors.md#blocked-done)" }
         title: { type: string }
         status: { type: integer }
         detail: { type: string }

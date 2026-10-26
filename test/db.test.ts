@@ -14,15 +14,16 @@ function freshDb() {
 describe("표 구조 변경", () => {
   it("올리고 되돌리고 다시 올릴 수 있다", () => {
     const db = new Database(":memory:");
-    expect(migrateUp(db)).toEqual(["001_init"]);
+    expect(migrateUp(db)).toEqual(["001_init", "002_keys_idempotency_session"]);
     expect(migrateUp(db)).toEqual([]); // 두 번 돌려도 그대로
+    expect(migrateDownOne(db)).toBe("002_keys_idempotency_session");
     expect(migrateDownOne(db)).toBe("001_init");
     expect(applied(db)).toEqual([]);
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
       .all();
     expect(tables).toHaveLength(0);
-    expect(migrateUp(db)).toEqual(["001_init"]);
+    expect(migrateUp(db)).toEqual(["001_init", "002_keys_idempotency_session"]);
   });
 
   it("데이터베이스가 직접 막는다: 끝난 일에 멈춘 이유", () => {
