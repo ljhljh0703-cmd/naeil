@@ -4,18 +4,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { createKey, revokeKey } from "../src/auth.js";
 import { openDb } from "../src/db/connection.js";
+import { Store } from "../src/db/store.js";
 import { toFastifyPath } from "../src/spec.js";
 import { expectSpec, specOperations } from "./spec-check.js";
 
-// 아직 안 만든 동작 (다음 조각: 마일스톤 보드). 만들면 여기서 지운다.
-const NOT_YET = [
-  "PATCH /v1/projects/{projectId}",
-  "DELETE /v1/projects/{projectId}",
-  "GET /v1/projects/{projectId}/milestones",
-  "POST /v1/projects/{projectId}/milestones",
-  "PATCH /v1/milestones/{milestoneId}",
-  "DELETE /v1/milestones/{milestoneId}",
-];
+// 명세서의 19개 동작을 모두 구현한다.
+const NOT_YET: string[] = [];
 
 let db: Database.Database;
 let app: FastifyInstance;
@@ -492,5 +486,430 @@ describe("프로젝트", () => {
     expect(list.json().items.map((p: { name: string }) => p.name)).toEqual(["젤리 패닉"]);
     const one = await call("GET", "/v1/projects/{projectId}", { url: `/v1/projects/${id}` });
     expect(one.json().name).toBe("젤리 패닉");
+  });
+});
+
+describe("프로젝트·마일스톤", () => {
+  const missingId = "00000000-0000-4000-8000-000000000000";
+  const projectPath = "/v1/projects/{projectId}";
+  const listPath = "/v1/projects/{projectId}/milestones";
+  const milestonePath = "/v1/milestones/{milestoneId}";
+  const fixture = () => {
+    const store = new Store(db);
+    const projectId = store.createProject("fixture", "샘플 프로젝트");
+    const milestoneId = store.createMilestone("fixture", projectId, "샘플 목표");
+    return { store, projectId, milestoneId };
+  };
+  const changesFor = (id: string) =>
+    db.prepare("SELECT * FROM change_log WHERE entity_id = ? ORDER BY id").all(id) as {
+      entity: string;
+      action: string;
+      actor: string;
+      session: string | null;
+    }[];
+
+  it("프로젝트 PATCH: 이름을 바꾸고 판 표시·변경 기록 한 줄을 돌려준다", async () => {
+    const { projectId } = fixture();
+    const res = await call("PATCH", projectPath, {
+      url: `/v1/projects/${projectId}`,
+      body: { name: "바뀐 프로젝트" },
+      headers: { "x-naeil-session": "session-2" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().name).toBe("바뀐 프로젝트");
+    expect(res.headers.etag).toBe('"v2"');
+    expect(changesFor(projectId)).toHaveLength(2);
+    expect(changesFor(projectId).at(-1)).toMatchObject({
+      entity: "project",
+      action: "update",
+      actor: "author",
+      session: "session-2",
+    });
+  });
+
+  it("프로젝트 PATCH: 빈 본문·잘못된 이름·추가 칸은 400이며 바뀌지 않는다", async () => {
+    const { store, projectId } = fixture();
+    const before = store.getProject(projectId);
+    for (const body of [
+      {},
+      { name: "" },
+      { name: 123 },
+      { name: "x".repeat(101) },
+      { name: "x", extra: true },
+    ]) {
+      const res = await call("PATCH", projectPath, { url: `/v1/projects/${projectId}`, body });
+      expect(res.statusCode).toBe(400);
+    }
+    expect(store.getProject(projectId)).toEqual(before);
+    expect(changesFor(projectId)).toHaveLength(1);
+  });
+
+  it("프로젝트 PATCH: GET에서 읽은 판으로 수정하며 오래된·약한 판은 412", async () => {
+    const { projectId } = fixture();
+    const url = `/v1/projects/${projectId}`;
+    const read = await call("GET", projectPath, { url });
+    expect(read.headers.etag).toBe('"v1"');
+    const ok = await call("PATCH", projectPath, {
+      url,
+      body: { name: "둘째" },
+      headers: { "if-match": read.headers.etag as string },
+    });
+    expect(ok.statusCode).toBe(200);
+    for (const tag of ['"v1"', 'W/"v2"']) {
+      const bad = await call("PATCH", projectPath, {
+        url,
+        body: { name: "덮어쓰기" },
+        headers: { "if-match": tag },
+      });
+      expect(bad.statusCode).toBe(412);
+    }
+    const multi = await call("PATCH", projectPath, {
+      url,
+      body: { name: "셋째" },
+      headers: { "if-match": '"old", "v2"' },
+    });
+    expect(multi.statusCode).toBe(200);
+    const star = await call("PATCH", projectPath, {
+      url,
+      body: { name: "넷째" },
+      headers: { "if-match": "*" },
+    });
+    expect(star.statusCode).toBe(200);
+    expect(changesFor(projectId)).toHaveLength(4);
+  });
+
+  it("프로젝트 DELETE: 프로젝트만 휴지통에 넣고 하위 행은 보존한다", async () => {
+    const { store, projectId, milestoneId } = fixture();
+    const taskId = store.createTask("fixture", { projectId, milestoneId, title: "샘플 할 일" });
+    const beforeTask = store.getTask(taskId);
+    const beforeMilestone = db.prepare("SELECT * FROM milestones WHERE id = ?").get(milestoneId);
+    const res = await call("DELETE", projectPath, { url: `/v1/projects/${projectId}` });
+    expect(res.statusCode).toBe(204);
+    expect(res.body).toBe("");
+    expect(store.getProject(projectId)).toBeUndefined();
+    expect(store.getProject(projectId, { includeTrashed: true })?.deleted_at).toBeTruthy();
+    expect(store.getTask(taskId)).toEqual(beforeTask);
+    expect(db.prepare("SELECT * FROM milestones WHERE id = ?").get(milestoneId)).toEqual(
+      beforeMilestone,
+    );
+    expect((await call("GET", "/v1/projects")).json().items).toEqual([]);
+    expect(
+      (await call("GET", "/v1/projects", { url: "/v1/projects?includeTrashed=true" })).json().items,
+    ).toHaveLength(1);
+    expect(changesFor(projectId).at(-1)).toMatchObject({ entity: "project", action: "trash" });
+    expect(changesFor(projectId)).toHaveLength(2);
+  });
+
+  it("프로젝트 DELETE·PATCH: 없는 번호와 휴지통 번호는 404", async () => {
+    const { projectId } = fixture();
+    expect(
+      (await call("DELETE", projectPath, { url: `/v1/projects/${projectId}` })).statusCode,
+    ).toBe(204);
+    for (const id of [missingId, projectId]) {
+      expect((await call("DELETE", projectPath, { url: `/v1/projects/${id}` })).statusCode).toBe(
+        404,
+      );
+      expect(
+        (await call("PATCH", projectPath, { url: `/v1/projects/${id}`, body: { name: "x" } }))
+          .statusCode,
+      ).toBe(404);
+    }
+    expect(changesFor(projectId)).toHaveLength(2);
+  });
+
+  it("마일스톤 GET: 해당 프로젝트만 마감 순서로, 마감 없는 것은 뒤로", async () => {
+    const { store, projectId, milestoneId } = fixture();
+    const later = store.createMilestone("fixture", projectId, "나중", "2026-11-03T00:00:00Z");
+    const earlier = store.createMilestone(
+      "fixture",
+      projectId,
+      "먼저",
+      "2026-11-02T08:00:00+09:00",
+    );
+    const otherProject = store.createProject("fixture", "다른 프로젝트");
+    store.createMilestone("fixture", otherProject, "다른 목표", "2026-11-01T00:00:00Z");
+    const res = await call("GET", listPath, { url: `/v1/projects/${projectId}/milestones` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().items.map((m: { id: string }) => m.id)).toEqual([
+      earlier,
+      later,
+      milestoneId,
+    ]);
+    expect(res.json().items.every((m: { etag: string }) => m.etag === '"v1"')).toBe(true);
+  });
+
+  it("마일스톤 GET: 없는 프로젝트는 404, 틀린 번호는 400", async () => {
+    expect(
+      (await call("GET", listPath, { url: `/v1/projects/${missingId}/milestones` })).statusCode,
+    ).toBe(404);
+    expect(
+      (await call("GET", listPath, { url: "/v1/projects/not-uuid/milestones" })).statusCode,
+    ).toBe(400);
+  });
+
+  it("마일스톤 POST: 201, UTC 마감, 생성 기록 한 줄", async () => {
+    const { projectId } = fixture();
+    const res = await call("POST", listPath, {
+      url: `/v1/projects/${projectId}/milestones`,
+      body: { name: "새 목표", dueAt: "2026-11-02T08:00:00+09:00" },
+      headers: { "x-naeil-session": "session-2" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({
+      projectId,
+      name: "새 목표",
+      dueAt: "2026-11-01T23:00:00.000Z",
+      deletedAt: null,
+      etag: '"v1"',
+    });
+    expect(changesFor(res.json().id)).toHaveLength(1);
+    expect(changesFor(res.json().id)[0]).toMatchObject({
+      entity: "milestone",
+      action: "create",
+      actor: "author",
+      session: "session-2",
+    });
+  });
+
+  it("마일스톤 POST: 마감 생략과 null 모두 허용한다", async () => {
+    const { projectId } = fixture();
+    for (const body of [{ name: "생략" }, { name: "없음", dueAt: null }]) {
+      const res = await call("POST", listPath, {
+        url: `/v1/projects/${projectId}/milestones`,
+        body,
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.json().dueAt).toBeNull();
+    }
+  });
+
+  it("마일스톤 POST: 잘못된 본문은 400이고 행이나 기록을 만들지 않는다", async () => {
+    const { projectId } = fixture();
+    const count = () => db.prepare("SELECT count(*) AS n FROM change_log").get();
+    const before = count();
+    for (const body of [
+      {},
+      { name: "" },
+      { name: 123 },
+      { name: "x", extra: true },
+      { name: "x", dueAt: "not-a-date" },
+    ]) {
+      const res = await call("POST", listPath, {
+        url: `/v1/projects/${projectId}/milestones`,
+        body,
+      });
+      expect(res.statusCode).toBe(400);
+    }
+    expect(count()).toEqual(before);
+  });
+
+  it("마일스톤 POST: 같은 요청은 한 번만, 다른 본문이나 프로젝트 재사용은 422", async () => {
+    const { projectId } = fixture();
+    const opts = {
+      url: `/v1/projects/${projectId}/milestones`,
+      headers: { "idempotency-key": "milestone-retry-1" },
+      body: { name: "한 번만" },
+    };
+    const a = await call("POST", listPath, opts);
+    expect(a.statusCode).toBe(201);
+    const b = await call("POST", listPath, opts);
+    expect(b.statusCode).toBe(201);
+    expect(b.json()).toEqual(a.json());
+    expect(b.headers["idempotent-replayed"]).toBe("true");
+    expect(changesFor(a.json().id)).toHaveLength(1);
+    const changed = await call("POST", listPath, { ...opts, body: { name: "다른 내용" } });
+    expect(changed.statusCode).toBe(422);
+    const other = await newProject("다른 프로젝트");
+    expect(
+      (await call("POST", listPath, { ...opts, url: `/v1/projects/${other}/milestones` }))
+        .statusCode,
+    ).toBe(422);
+  });
+
+  it("마일스톤 POST·GET: 없는·휴지통 프로젝트는 404", async () => {
+    const { projectId } = fixture();
+    expect(
+      (await call("DELETE", projectPath, { url: `/v1/projects/${projectId}` })).statusCode,
+    ).toBe(204);
+    for (const id of [missingId, projectId]) {
+      expect(
+        (
+          await call("POST", listPath, {
+            url: `/v1/projects/${id}/milestones`,
+            body: { name: "x" },
+          })
+        ).statusCode,
+      ).toBe(404);
+      expect(
+        (await call("GET", listPath, { url: `/v1/projects/${id}/milestones` })).statusCode,
+      ).toBe(404);
+    }
+  });
+
+  it("마일스톤 PATCH: 이름·마감을 고치며 null은 마감 제거, 생략은 유지", async () => {
+    const { milestoneId } = fixture();
+    const url = `/v1/milestones/${milestoneId}`;
+    const a = await call("PATCH", milestonePath, {
+      url,
+      body: { name: "새 이름", dueAt: "2026-11-02T08:00:00+09:00" },
+    });
+    expect(a.statusCode).toBe(200);
+    expect(a.json()).toMatchObject({
+      name: "새 이름",
+      dueAt: "2026-11-01T23:00:00.000Z",
+      etag: '"v2"',
+    });
+    const b = await call("PATCH", milestonePath, { url, body: { name: "다음 이름" } });
+    expect(b.json().dueAt).toBe(a.json().dueAt);
+    const c = await call("PATCH", milestonePath, {
+      url,
+      body: { dueAt: null },
+      headers: { "x-naeil-session": "session-4" },
+    });
+    expect(c.json()).toMatchObject({ name: "다음 이름", dueAt: null, etag: '"v4"' });
+    expect(c.headers.etag).toBe('"v4"');
+    expect(changesFor(milestoneId)).toHaveLength(4);
+    expect(changesFor(milestoneId).at(-1)).toMatchObject({
+      entity: "milestone",
+      action: "update",
+      session: "session-4",
+    });
+  });
+
+  it("마일스톤 PATCH: 빈 본문·잘못된 칸은 400", async () => {
+    const { milestoneId } = fixture();
+    for (const body of [
+      {},
+      { name: "" },
+      { name: 123 },
+      { dueAt: "bad" },
+      { projectId: missingId },
+    ]) {
+      const res = await call("PATCH", milestonePath, {
+        url: `/v1/milestones/${milestoneId}`,
+        body,
+      });
+      expect(res.statusCode).toBe(400);
+    }
+    expect(changesFor(milestoneId)).toHaveLength(1);
+  });
+
+  it("마일스톤 PATCH: 목록의 판 표시로 수정하고 충돌 뒤 다시 읽는다", async () => {
+    const { projectId, milestoneId } = fixture();
+    const url = `/v1/milestones/${milestoneId}`;
+    const read = await call("GET", listPath, { url: `/v1/projects/${projectId}/milestones` });
+    expect(read.statusCode).toBe(200);
+    const tag = read.json().items[0].etag;
+    expect(tag).toBe('"v1"');
+    expect(
+      (
+        await call("PATCH", milestonePath, {
+          url,
+          body: { name: "둘째" },
+          headers: { "if-match": tag },
+        })
+      ).statusCode,
+    ).toBe(200);
+    for (const old of [tag, 'W/"v2"']) {
+      expect(
+        (
+          await call("PATCH", milestonePath, {
+            url,
+            body: { name: "덮어쓰기" },
+            headers: { "if-match": old },
+          })
+        ).statusCode,
+      ).toBe(412);
+    }
+    const again = await call("GET", listPath, { url: `/v1/projects/${projectId}/milestones` });
+    expect(again.json().items[0]).toMatchObject({ name: "둘째", etag: '"v2"' });
+    expect(
+      (
+        await call("PATCH", milestonePath, {
+          url,
+          body: { name: "셋째" },
+          headers: { "if-match": '"old", "v2"' },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await call("PATCH", milestonePath, {
+          url,
+          body: { name: "넷째" },
+          headers: { "if-match": "*" },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(changesFor(milestoneId)).toHaveLength(4);
+  });
+
+  it("마일스톤 DELETE: 204, 목록 제외, 할 일 연결 보존", async () => {
+    const { store, projectId, milestoneId } = fixture();
+    const taskId = store.createTask("fixture", { projectId, milestoneId, title: "연결 보존" });
+    const before = store.getTask(taskId);
+    const res = await call("DELETE", milestonePath, { url: `/v1/milestones/${milestoneId}` });
+    expect(res.statusCode).toBe(204);
+    expect(res.body).toBe("");
+    expect(
+      (await call("GET", listPath, { url: `/v1/projects/${projectId}/milestones` })).json().items,
+    ).toEqual([]);
+    expect(store.getTask(taskId)).toEqual(before);
+    expect(changesFor(milestoneId)).toHaveLength(2);
+    expect(changesFor(milestoneId).at(-1)).toMatchObject({ entity: "milestone", action: "trash" });
+  });
+
+  it("마일스톤 DELETE·PATCH: 없는·휴지통 번호는 404", async () => {
+    const { milestoneId } = fixture();
+    expect(
+      (await call("DELETE", milestonePath, { url: `/v1/milestones/${milestoneId}` })).statusCode,
+    ).toBe(204);
+    for (const id of [missingId, milestoneId]) {
+      expect(
+        (await call("DELETE", milestonePath, { url: `/v1/milestones/${id}` })).statusCode,
+      ).toBe(404);
+      expect(
+        (await call("PATCH", milestonePath, { url: `/v1/milestones/${id}`, body: { name: "x" } }))
+          .statusCode,
+      ).toBe(404);
+    }
+    expect(changesFor(milestoneId)).toHaveLength(2);
+  });
+
+  it("6개 동작: 다른 작업 공간의 번호는 404이며 원본은 그대로", async () => {
+    const other = new Store(db, "other");
+    const p = other.createProject("fixture", "다른 공간");
+    const m = other.createMilestone("fixture", p, "다른 목표");
+    const checks = [
+      ["PATCH", projectPath, `/v1/projects/${p}`, { name: "x" }],
+      ["DELETE", projectPath, `/v1/projects/${p}`, undefined],
+      ["GET", listPath, `/v1/projects/${p}/milestones`, undefined],
+      ["POST", listPath, `/v1/projects/${p}/milestones`, { name: "x" }],
+      ["PATCH", milestonePath, `/v1/milestones/${m}`, { name: "x" }],
+      ["DELETE", milestonePath, `/v1/milestones/${m}`, undefined],
+    ] as const;
+    for (const [method, path, url, body] of checks) {
+      expect((await call(method, path, { url, body })).statusCode).toBe(404);
+    }
+    expect(other.getProject(p)?.name).toBe("다른 공간");
+    expect(changesFor(p)).toHaveLength(1);
+    expect(changesFor(m)).toHaveLength(1);
+  });
+
+  it("6개 동작: 출입증 없이 401, 잘못된 번호는 400", async () => {
+    const { projectId, milestoneId } = fixture();
+    const checks = [
+      ["PATCH", projectPath, `/v1/projects/${projectId}`, { name: "x" }],
+      ["DELETE", projectPath, `/v1/projects/${projectId}`, undefined],
+      ["GET", listPath, `/v1/projects/${projectId}/milestones`, undefined],
+      ["POST", listPath, `/v1/projects/${projectId}/milestones`, { name: "x" }],
+      ["PATCH", milestonePath, `/v1/milestones/${milestoneId}`, { name: "x" }],
+      ["DELETE", milestonePath, `/v1/milestones/${milestoneId}`, undefined],
+    ] as const;
+    for (const [method, path, url, body] of checks) {
+      expect((await call(method, path, { url, body, key: "" })).statusCode).toBe(401);
+      const badUrl = url.replace(projectId, "bad-id").replace(milestoneId, "bad-id");
+      expect((await call(method, path, { url: badUrl, body })).statusCode).toBe(400);
+    }
   });
 });

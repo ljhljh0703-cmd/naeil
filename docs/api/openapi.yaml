@@ -115,6 +115,8 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "200":
           description: 프로젝트
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Project" }
@@ -140,6 +142,8 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "200":
           description: 바뀐 프로젝트
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Project" }
@@ -169,7 +173,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "200":
-          description: 목록 (마감 빠른 순)
+          description: 목록 (마감 빠른 순, 마감 없음은 뒤). 각 항목의 etag를 If-Match로 보낸다.
           content:
             application/json:
               schema:
@@ -234,6 +238,8 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "200":
           description: 바뀐 마일스톤
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Milestone" }
@@ -516,7 +522,7 @@ components:
       in: header
       required: false
       description: |
-        덮어쓰기 막기 (작가 결정: 선택으로 받기). 값은 GET 응답의 ETag.
+        덮어쓰기 막기 (작가 결정: 선택으로 받기). 값은 GET 응답의 ETag 또는 마일스톤 목록 항목의 etag.
         - 보내면: 읽은 뒤 다른 세션이 먼저 고쳤을 때 412 로 막는다
         - 안 보내면: 검사 없이 고친다
       schema: { type: string }
@@ -538,7 +544,7 @@ components:
 
   headers:
     ETag:
-      description: 이 할 일의 지금 판 표시. 고칠 때 If-Match 에 넣는다.
+      description: 이 항목의 지금 판 표시. 고칠 때 If-Match 에 넣는다.
       schema: { type: string }
 
   responses:
@@ -596,12 +602,16 @@ components:
       allOf:
         - $ref: "#/components/schemas/Timestamps"
         - type: object
-          required: [id, projectId, name]
+          required: [id, projectId, name, etag]
           properties:
             id: { type: string, format: uuid }
             projectId: { type: string, format: uuid }
             name: { type: string }
             dueAt: { type: [string, "null"], format: date-time }
+            etag:
+              type: string
+              description: 이 마일스톤의 판 표시. 목록을 다시 읽어 최신 값을 얻고 PATCH의 If-Match에 그대로 보낸다.
+              example: '"v1"'
     Task:
       allOf:
         - $ref: "#/components/schemas/Timestamps"

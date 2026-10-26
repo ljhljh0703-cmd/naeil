@@ -15,7 +15,10 @@ import { openDb } from "./db/connection.js";
 import {
   type BlockedReason,
   type ChangeRow,
+  type Milestone,
+  type MilestonePatch,
   type Project,
+  type ProjectPatch,
   type Status,
   Store,
   type Task,
@@ -56,6 +59,17 @@ export const toProject = (p: Project) => ({
   deletedAt: p.deleted_at,
 });
 
+export const toMilestone = (m: Milestone) => ({
+  id: m.id,
+  projectId: m.project_id,
+  name: m.name,
+  dueAt: m.due_at,
+  etag: etag(m),
+  createdAt: m.created_at,
+  updatedAt: m.updated_at,
+  deletedAt: m.deleted_at,
+});
+
 export const toTask = (t: Task) => ({
   id: t.id,
   projectId: t.project_id,
@@ -85,7 +99,7 @@ export const toChange = (c: ChangeRow) => ({
   details: c.details ? JSON.parse(c.details) : null,
 });
 
-const etag = (t: Task) => `"v${t.version}"`;
+const etag = (t: { version: number }) => `"v${t.version}"`;
 
 // If-Match: 없으면 검사 안 함(작가 결정: 선택). 「*」 도 검사 안 함.
 // If-Match 는 강한 비교(RFC 9110): 약한 표시(W/"…")는 맞는 것으로 치지 않는다. 여러 개를 쉼표로 보내면 하나라도 맞으면 통과.
@@ -260,11 +274,75 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     }),
   );
 
-  route("GET", "/v1/projects/{projectId}", async (req) => {
+  route("GET", "/v1/projects/{projectId}", async (req, reply) => {
     const { projectId } = req.params as { projectId: string };
     const p = storeFor(req).getProject(projectId);
     if (!p) throw new NotFound(`프로젝트가 없음: ${projectId}`);
-    return toProject(p);
+    return reply.header("ETag", etag(p)).send(toProject(p));
+  });
+
+  route("PATCH", "/v1/projects/{projectId}", async (req, reply) => {
+    const { projectId } = req.params as { projectId: string };
+    const s = storeFor(req);
+    const before = s.getProject(projectId);
+    if (!before) throw new NotFound(`프로젝트가 없음: ${projectId}`);
+    const ifMatch = req.headers["if-match"];
+    const header = typeof ifMatch === "string" ? ifMatch : undefined;
+    if (!matchesIfMatch(header, before.version)) throw new VersionMismatch();
+    s.updateProject(
+      req.who,
+      projectId,
+      req.body as ProjectPatch,
+      header === undefined ? undefined : before.version,
+    );
+    const updated = s.getProject(projectId) as Project;
+    return reply.header("ETag", etag(updated)).send(toProject(updated));
+  });
+
+  route("DELETE", "/v1/projects/{projectId}", async (req, reply) => {
+    const { projectId } = req.params as { projectId: string };
+    storeFor(req).trashProject(req.who, projectId);
+    return reply.code(204).send();
+  });
+
+  // ── 마일스톤 ──
+  route("GET", "/v1/projects/{projectId}/milestones", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    return { items: storeFor(req).listMilestones(projectId).map(toMilestone) };
+  });
+
+  route("POST", "/v1/projects/{projectId}/milestones", async (req, reply) =>
+    idempotent(req, reply, () => {
+      const { projectId } = req.params as { projectId: string };
+      const body = req.body as { name: string; dueAt?: string | null };
+      const s = storeFor(req);
+      const id = s.createMilestone(req.who, projectId, body.name, body.dueAt);
+      return { status: 201, body: toMilestone(s.getMilestone(id) as Milestone), location: null };
+    }),
+  );
+
+  route("PATCH", "/v1/milestones/{milestoneId}", async (req, reply) => {
+    const { milestoneId } = req.params as { milestoneId: string };
+    const s = storeFor(req);
+    const before = s.getMilestone(milestoneId);
+    if (!before) throw new NotFound(`마일스톤이 없음: ${milestoneId}`);
+    const ifMatch = req.headers["if-match"];
+    const header = typeof ifMatch === "string" ? ifMatch : undefined;
+    if (!matchesIfMatch(header, before.version)) throw new VersionMismatch();
+    s.updateMilestone(
+      req.who,
+      milestoneId,
+      req.body as MilestonePatch,
+      header === undefined ? undefined : before.version,
+    );
+    const updated = s.getMilestone(milestoneId) as Milestone;
+    return reply.header("ETag", etag(updated)).send(toMilestone(updated));
+  });
+
+  route("DELETE", "/v1/milestones/{milestoneId}", async (req, reply) => {
+    const { milestoneId } = req.params as { milestoneId: string };
+    storeFor(req).trashMilestone(req.who, milestoneId);
+    return reply.code(204).send();
   });
 
   // ── 할 일 ──

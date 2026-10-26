@@ -4,9 +4,9 @@
 > AI 세션을 여러 개 오가도 어제 한 일을 잃지 않는 1인 개발자 작업판
 
 ## 지금 상태
-- ⏳ 단계 1/9 · 첫 기능: 할 일 API + 오늘 화면
+- ⏳ 단계 1/9 · 첫 기능: 할 일·프로젝트·마일스톤 API + 오늘 화면
 - 오늘 화면 4칸: 마지막에 한 일 · 지금 할 것 1개 · 내가 정할 것 · 마감 가까운 것
-- API 명세서 `docs/api/openapi.yaml` (19개 동작 중 13개 만듦, 나머지는 마일스톤 보드 때)
+- API 명세서 `docs/api/openapi.yaml` (19개 동작 구현, 마일스톤 보드 화면은 다음 조각)
 
 ## 처음 한 번
 ```bash
@@ -39,12 +39,16 @@ npm start                     # 화면을 굽고 서버를 켠다 → http://127
 | 주소 | 하는 일 |
 |---|---|
 | `GET /health` | 살아 있나 (출입증 없이) |
-| `GET·POST /v1/projects` · `GET /v1/projects/{id}` | 프로젝트 |
+| `GET·POST /v1/projects` · `GET·PATCH·DELETE /v1/projects/{id}` | 프로젝트 목록·만들기·보기·이름 변경·휴지통 |
+| `GET·POST /v1/projects/{id}/milestones` | 마일스톤 목록(마감 빠른 순, 마감 없음 뒤)·만들기 |
+| `PATCH·DELETE /v1/milestones/{id}` | 마일스톤 이름·마감 변경·휴지통 |
 | `GET·POST /v1/tasks` | 할 일 목록(거르기·커서) · 만들기(`Idempotency-Key` 로 두 번 막기) |
 | `GET·PATCH·DELETE /v1/tasks/{id}` | 보기(`ETag`) · 고치기(`If-Match` 선택) · 휴지통 |
 | `PUT·DELETE /v1/tasks/{id}/block` | 멈춤 걸기 · 풀기 |
 | `POST /v1/tasks/{id}/revive` | 되살리기 |
 | `GET /v1/changes` | 변경 기록 (읽기만) |
+
+프로젝트는 GET 응답의 `ETag`, 마일스톤은 목록 항목의 `etag`를 PATCH 요청의 `If-Match`에 넣으면 오래된 내용으로 덮어쓰는 일을 막는다. 생략하면 검사 없이 고친다. 프로젝트 휴지통은 프로젝트만 옮기며, 하위 할 일·마일스톤은 그대로 둔다.
 
 오류는 전부 한 가지 모양(`application/problem+json`). 종류는 `docs/errors.md`.
 
