@@ -20,14 +20,26 @@ naeil API의 오류는 전부 한 가지 모양(`application/problem+json`, RFC 
 ## unauthorized
 401. `Authorization: Bearer <출입증>` 이 없거나 틀리거나 폐기됨. 응답 머리말 `WWW-Authenticate: Bearer`.
 
+## forbidden
+403. 열 수 없는 파일 (화면 파일 밖).
+
 ## not-found
 404. 없거나 휴지통에 있음. 휴지통에 있는 할 일은 `POST /v1/tasks/{taskId}/revive` 로 되살린다.
+
+## method-not-allowed
+405. 이 주소에서 쓸 수 없는 방법.
 
 ## duplicate-import
 409. 같은 출처(`source` + `sourceRef`)의 할 일이 이미 있음. 깃허브 이슈를 두 번 가져올 때.
 
 ## version-mismatch
 412. `If-Match` 로 보낸 판 표시가 지금 판과 다름. 그 사이 다른 세션이 먼저 고쳤다. 다시 읽고 고친다.
+
+## too-large
+413. 보낸 내용이 너무 큼 (1MB 넘음).
+
+## unsupported-type
+415. 받지 않는 내용 종류. 본문은 `application/json` 으로.
 
 ## idempotency-key-reused
 422. 같은 `Idempotency-Key` 를 다른 내용으로 다시 보냄. 내용이 다르면 새 열쇠를 쓴다.
