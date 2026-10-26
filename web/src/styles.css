@@ -365,3 +365,378 @@ code {
   display: flex;
   justify-content: flex-end;
 }
+
+/* ── 누를 수 있는 카드 (2026-10-26) ──
+ * 제목이 진짜 링크이고, 덮개(::after)를 카드 전체로 늘려 어디를 눌러도 열린다.
+ * 카드 안 버튼은 덮개 위로 올린다. */
+.cards {
+  list-style: none;
+  margin: 0 calc(var(--s2) * -1);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item-card {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s2);
+  padding: var(--s2);
+  border-radius: var(--r-ctl);
+  font-size: var(--t-small);
+}
+
+.item-card:hover {
+  background: var(--bg);
+}
+
+.item-card:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.item-card.selected {
+  background: var(--accent-soft);
+}
+
+.card-link {
+  flex: 1 1 100%;
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 700;
+  min-width: 0;
+}
+
+.card-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.card-link:focus-visible {
+  outline: none;
+}
+
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s2);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.meta-text {
+  color: var(--ink-3);
+  font-size: var(--t-meta);
+}
+
+.card-action {
+  position: relative;
+  z-index: 1;
+  margin-left: auto;
+}
+
+.chip.tone-info {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.chip.tone-warn {
+  color: var(--warn);
+}
+.chip.tone-fail {
+  color: var(--late);
+}
+.chip.tone-done {
+  color: var(--ink-3);
+}
+
+.now-link {
+  color: inherit;
+  text-decoration: none;
+}
+.now-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+/* ── 상세 패널 ──
+ * PC: 오른쪽 옆 패널, 뒤 목록은 계속 누를 수 있다. 폰: 전체 화면. */
+.layout.with-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 420px;
+  align-items: start;
+}
+
+.layout.with-panel .shell {
+  max-width: 900px;
+  width: 100%;
+}
+
+.layout.with-panel .grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.detail {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--card);
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+}
+
+.detail.full {
+  position: static;
+  height: auto;
+  border: 0;
+  border-radius: var(--r-card);
+}
+
+.detail-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+
+.detail-head .kind {
+  font-size: var(--t-meta);
+  font-weight: 700;
+  color: var(--ink-3);
+}
+
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+}
+
+.head-actions .pos {
+  font-size: var(--t-meta);
+  color: var(--ink-3);
+  margin-right: var(--s1);
+}
+
+button.icon,
+.icon-link {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--ink-2);
+}
+
+.icon-link:hover,
+button.icon:hover {
+  background: var(--bg);
+}
+
+.icon-link:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+button.icon svg,
+.icon-link svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.detail-body {
+  padding: var(--s5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+}
+
+.detail-body h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+
+.detail-body h2:focus {
+  outline: none;
+}
+
+.detail-body .meta {
+  margin: calc(var(--s4) * -1) 0 0;
+}
+
+.d-section h3 {
+  margin: 0 0 var(--s2);
+  font-size: var(--t-meta);
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.fields {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--s2) var(--s4);
+  font-size: var(--t-small);
+}
+
+.fields div {
+  display: contents;
+}
+
+.fields dt {
+  color: var(--ink-3);
+}
+
+.fields dd {
+  margin: 0;
+}
+
+.note {
+  margin: 0 0 var(--s2);
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-ctl);
+  background: var(--bg);
+  color: var(--ink-2);
+  font-size: var(--t-meta);
+}
+
+.body-text {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: var(--t-small);
+}
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  font-size: var(--t-small);
+}
+
+.timeline li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s2);
+}
+
+.timeline .when,
+.timeline .who {
+  color: var(--ink-3);
+  font-size: var(--t-meta);
+}
+
+button.danger {
+  color: var(--late);
+}
+
+/* 보기 고르기 */
+.top-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--s2);
+}
+
+.seg {
+  display: inline-flex;
+  margin: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--r-ctl);
+  background: var(--card);
+}
+
+.seg button {
+  min-height: 32px;
+  padding: 4px var(--s3);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--t-meta);
+}
+
+.seg button[aria-pressed="true"] {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* 집중 보기: 하나만 크게 */
+.hero.focus {
+  padding: var(--s7) var(--s6);
+  text-align: left;
+}
+
+.hero.focus .now {
+  font-size: 40px;
+}
+
+.focus-foot .label {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.focus-foot .label button {
+  margin-left: auto;
+}
+
+@media (max-width: 1100px) {
+  .layout.with-panel {
+    grid-template-columns: minmax(0, 1fr) 380px;
+  }
+  .layout.with-panel .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 폰: 상세는 전체 화면으로 덮고, 뒤로 가기로 닫는다 */
+@media (max-width: 760px) {
+  .layout.with-panel {
+    display: block;
+  }
+  .detail:not(.full) {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    height: auto;
+    border: 0;
+  }
+  .hero.focus .now {
+    font-size: 28px;
+  }
+  .hero.focus {
+    padding: var(--s6) var(--s5);
+  }
+}
+
+/* 화면에는 안 보이고 화면낭독기만 읽는 글 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

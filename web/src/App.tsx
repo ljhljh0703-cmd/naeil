@@ -1,74 +1,60 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError, api, type Change, getKey, type Project, setKey } from "./api.js";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ApiError, type ApiTask, api, type Change, getKey, type Project, setKey } from "./api.js";
+import { CardList, DetailPanel, type OpenFn } from "./ItemViews.js";
 import {
-  type BlockedReason,
-  dDay,
-  dueFromKstDate,
-  dueSoon,
-  kstDate,
-  pickNow,
-  type Status,
-  type Task,
-  waitingOnMe,
-} from "./today.js";
+  type Action,
+  type CardModel,
+  type Ctx,
+  cardOf,
+  detailOf,
+  type ItemRef,
+  parseRef,
+  refKey,
+} from "./items.js";
+import { dLabel, todayFmt } from "./labels.js";
+import { dDay, dueFromKstDate, dueSoon, kstDate, pickNow, waitingOnMe } from "./today.js";
 
-const STATUS: Record<Status, string> = { todo: "할 일", doing: "하는 중", done: "끝" };
-const BLOCKED: Record<BlockedReason, string> = {
-  my_decision: "내 결정 기다림",
-  ai_working: "AI가 하는 중",
-  external: "바깥 답 기다림",
-  tech: "기술 문제",
-};
-const ACTION: Record<string, string> = {
-  create: "만듦",
-  status: "상태 바꿈",
-  update: "고침",
-  block: "멈춤",
-  unblock: "멈춤 풀림",
-  trash: "휴지통",
-  revive: "되살림",
-};
+type Mode = "board" | "focus";
 
-const timeFmt = new Intl.DateTimeFormat("ko-KR", {
-  timeZone: "Asia/Seoul",
-  month: "numeric",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
-const todayFmt = new Intl.DateTimeFormat("ko-KR", {
-  timeZone: "Asia/Seoul",
-  month: "long",
-  day: "numeric",
-  weekday: "long",
-});
-
-const dLabel = (n: number) => (n === 0 ? "오늘 마감" : n > 0 ? `D-${n}` : `${-n}일 지남`);
+function load<T>(key: string, fallback: T): T {
+  try {
+    const v = localStorage.getItem(key);
+    return v ? (JSON.parse(v) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function save(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // 저장이 막혀도 이번 창에서는 동작
+  }
+}
 
 // 오늘 하루 건너뛴 것·고정한 것 (이 브라우저에만)
 function useDayState() {
-  const day = kstDate(new Date());
-  const storeKey = `naeil.day.${day}`;
-  const [state, setState] = useState<{ skipped: string[]; pinned: string | null }>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(storeKey) ?? "") as {
-        skipped: string[];
-        pinned: string | null;
-      };
-    } catch {
-      return { skipped: [], pinned: null };
-    }
-  });
-  const save = (next: typeof state) => {
-    setState(next);
-    try {
-      localStorage.setItem(storeKey, JSON.stringify(next));
-    } catch {
-      // 저장이 막혀도 이번 창에서는 동작
-    }
+  const storeKey = `naeil.day.${kstDate(new Date())}`;
+  const [state, setState] = useState(() =>
+    load<{ skipped: string[]; pinned: string | null }>(storeKey, { skipped: [], pinned: null }),
+  );
+  return {
+    ...state,
+    save: (next: typeof state) => {
+      setState(next);
+      save(storeKey, next);
+    },
   };
-  return { ...state, save };
+}
+
+// 열린 항목은 주소에 담는다: ?open=task:… (패널) · &full=1 (페이지 하나로)
+function readUrl(): { ref: ItemRef | null; full: boolean } {
+  const q = new URLSearchParams(window.location.search);
+  return { ref: parseRef(q.get("open")), full: q.get("full") === "1" };
+}
+function urlFor(ref: ItemRef | null, full = false) {
+  if (!ref) return window.location.pathname;
+  return `?open=${encodeURIComponent(refKey(ref))}${full ? "&full=1" : ""}`;
 }
 
 function KeyForm({ onSaved, error }: { onSaved: () => void; error?: string }) {
@@ -80,7 +66,12 @@ function KeyForm({ onSaved, error }: { onSaved: () => void; error?: string }) {
   };
   return (
     <main className="shell narrow">
-      <Header />
+      <header className="top">
+        <div>
+          <h1>내일은내일</h1>
+          <p className="tagline">내 일은 naeil에서</p>
+        </div>
+      </header>
       <section className="card">
         <h2>출입증 넣기</h2>
         <p className="muted">
@@ -105,29 +96,26 @@ function KeyForm({ onSaved, error }: { onSaved: () => void; error?: string }) {
   );
 }
 
-function Header() {
-  return (
-    <header className="top">
-      <div>
-        <h1>내일은내일</h1>
-        <p className="tagline">내 일은 naeil에서</p>
-      </div>
-      <p className="date">{todayFmt.format(new Date())}</p>
-    </header>
-  );
-}
-
 export function App() {
   const [hasKey, setHasKey] = useState(() => !!getKey());
   const [keyError, setKeyError] = useState<string>();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [changes, setChanges] = useState<Change[]>([]);
   const [error, setError] = useState<string>();
   const [showAll, setShowAll] = useState(false);
+  const [mode, setModeState] = useState<Mode>(() => load<Mode>("naeil.mode", "board"));
+  const [open, setOpen] = useState(readUrl);
+  const [openList, setOpenList] = useState<ItemRef[]>([]);
+  const opener = useRef<HTMLElement | null>(null);
   const day = useDayState();
 
-  const load = useCallback(async () => {
+  const setMode = (m: Mode) => {
+    setModeState(m);
+    save("naeil.mode", m);
+  };
+
+  const reload = useCallback(async () => {
     try {
       const [p, t, c] = await Promise.all([api.projects(), api.allTasks(), api.changes()]);
       setProjects(p);
@@ -146,30 +134,137 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (hasKey) void load();
-  }, [hasKey, load]);
+    if (hasKey) void reload();
+  }, [hasKey, reload]);
 
-  const act = (fn: () => Promise<unknown>) => async () => {
+  // 뒤로 가기 = 패널 닫기 (폰에서 자연스럽게)
+  useEffect(() => {
+    const onPop = () => setOpen(readUrl());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const openItem: OpenFn = (ref, list, el) => {
+    const wasOpen = !!open.ref;
+    opener.current = el;
+    setOpenList(list);
+    setOpen({ ref, full: false });
+    if (wasOpen) window.history.replaceState({ naeil: true }, "", urlFor(ref));
+    else window.history.pushState({ naeil: true }, "", urlFor(ref));
+  };
+
+  const closeItem = useCallback(() => {
+    if (window.history.state?.naeil) window.history.back();
+    else window.history.replaceState(null, "", urlFor(null));
+    setOpen({ ref: null, full: false });
+    // 닫으면 연 카드로 포커스를 돌려준다
+    const el = opener.current;
+    requestAnimationFrame(() => el?.focus());
+  }, []);
+
+  const move = useCallback(
+    (step: 1 | -1) => {
+      if (!open.ref || openList.length < 2) return;
+      const i = openList.findIndex((r) => refKey(r) === refKey(open.ref as ItemRef));
+      const next = openList[(i + step + openList.length) % openList.length];
+      if (!next) return;
+      setOpen({ ref: next, full: open.full });
+      window.history.replaceState(window.history.state, "", urlFor(next, open.full));
+      opener.current = document.querySelector<HTMLElement>(
+        `[data-ref="${refKey(next)}"] .card-link`,
+      );
+    },
+    [open, openList],
+  );
+
+  // Esc 닫기, J/K 앞뒤 (글을 쓰는 중에는 안 받음)
+  useEffect(() => {
+    if (!open.ref) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest("input, textarea, select")) return;
+      if (e.key === "Escape") closeItem();
+      else if (e.key === "j" || e.key === "ArrowDown") {
+        if (e.key === "j" || t.closest(".detail")) {
+          e.preventDefault();
+          move(1);
+        }
+      } else if (e.key === "k" || e.key === "ArrowUp") {
+        if (e.key === "k" || t.closest(".detail")) {
+          e.preventDefault();
+          move(-1);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open.ref, closeItem, move]);
+
+  const run = async (fn: () => Promise<unknown>) => {
     try {
       await fn();
-      await load();
+      await reload();
     } catch (err) {
       setError((err as Error).message);
     }
   };
 
+  const onAction = (ref: ItemRef, a: Action) => {
+    if (ref.type !== "task") return;
+    const id = ref.id;
+    const byId: Record<string, () => Promise<unknown>> = {
+      start: () => api.setStatus(id, "doing"),
+      done: () => api.setStatus(id, "done"),
+      reopen: () => api.revive(id),
+      decided: () => api.unblock(id),
+      "need-decision": () => api.block(id, "my_decision"),
+      trash: async () => {
+        await api.trash(id);
+        if (open.ref && refKey(open.ref) === refKey(ref)) closeItem();
+      },
+    };
+    const fn = byId[a.id];
+    if (fn) void run(fn);
+  };
+
   const now = new Date();
+  const ctx: Ctx = { tasks, changes, projects, now };
   const skipped = useMemo(() => new Set(day.skipped), [day.skipped]);
   const current = pickNow(tasks, { skipped, pinnedId: day.pinned });
-  const decide = waitingOnMe(tasks);
-  const soon = dueSoon(tasks, now);
-  const projectName = (id: string) => projects.find((p) => p.id === id)?.name ?? "";
-  const titleOf = (c: Change) =>
-    c.entity === "task"
-      ? (tasks.find((t) => t.id === c.entityId)?.title ??
-        (c.details?.title as string) ??
-        "(휴지통)")
-      : ((c.details?.name as string) ?? projectName(c.entityId));
+  const cards = (list: ApiTask[], quick?: (t: ApiTask) => Action | undefined): CardModel[] =>
+    list
+      .map((t): CardModel | null => {
+        const c = cardOf(ctx, { type: "task", id: t.id });
+        return c ? { ...c, quickAction: quick?.(t) } : null;
+      })
+      .filter((c): c is CardModel => !!c);
+
+  const decideCards = cards(waitingOnMe(tasks) as ApiTask[], () => ({
+    id: "decided",
+    label: "정했음",
+  }));
+  const soonCards = cards(dueSoon(tasks, now) as ApiTask[]).map((c) => ({
+    ...c,
+    status: undefined,
+  }));
+  const recentCards = changes
+    .slice(0, 6)
+    .map((c) => cardOf(ctx, { type: "change", id: String(c.id) }))
+    .filter((c): c is CardModel => !!c);
+  const allCards = cards(tasks, (t) =>
+    t.status !== "done" ? { id: "done", label: "끝냄" } : undefined,
+  );
+  const today = kstDate(now);
+  const doneToday = changes.filter(
+    (c) =>
+      c.entity === "task" &&
+      c.action === "status" &&
+      c.details?.to === "done" &&
+      kstDate(new Date(c.at)) === today,
+  );
+  const doneTodayCards = [...new Set(doneToday.map((c) => c.entityId))]
+    .map((id) => cardOf(ctx, { type: "task", id }))
+    .filter((c): c is CardModel => !!c);
 
   if (!hasKey) {
     return (
@@ -183,211 +278,255 @@ export function App() {
     );
   }
 
-  return (
-    <main className="shell">
-      <Header />
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+  const detail = open.ref ? detailOf(ctx, open.ref) : null;
+  const posIndex = open.ref
+    ? openList.findIndex((r) => refKey(r) === refKey(open.ref as ItemRef))
+    : -1;
+  const panel = open.ref && (
+    <DetailPanel
+      detail={detail}
+      position={posIndex >= 0 ? { index: posIndex, total: openList.length } : null}
+      onClose={closeItem}
+      onMove={move}
+      onOpen={openItem}
+      onAction={onAction}
+      onExpand={(ref) => {
+        setOpen({ ref, full: true });
+        window.history.replaceState(window.history.state, "", urlFor(ref, true));
+      }}
+      full={open.full}
+    />
+  );
 
-      <section className="card hero" aria-labelledby="now-title">
-        <p className="label" id="now-title">
-          지금 할 것
-        </p>
-        {current ? (
-          <>
-            <h2 className="now">{current.title}</h2>
-            <p className="meta">
-              {projectName(current.projectId)}
-              {current.status === "doing" && <span className="chip doing">하는 중</span>}
-              {current.dueAt && <span className="chip">{dLabel(dDay(current.dueAt, now))}</span>}
-              {day.pinned === current.id && <span className="chip">오늘은 이거</span>}
-            </p>
-            <div className="row">
-              {current.status === "todo" ? (
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={act(() => api.setStatus(current.id, "doing"))}
-                >
-                  시작
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={act(() => api.setStatus(current.id, "done"))}
-                >
-                  끝냄
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() =>
-                  day.save({
-                    skipped: [...day.skipped, current.id],
-                    pinned: day.pinned === current.id ? null : day.pinned,
-                  })
-                }
-              >
-                건너뛰기
-              </button>
-              {day.pinned !== current.id && (
-                <button type="button" onClick={() => day.save({ ...day, pinned: current.id })}>
-                  오늘은 이거
-                </button>
-              )}
-              <button
-                type="button"
-                className="ghost"
-                onClick={act(() => api.block(current.id, "my_decision"))}
-              >
-                내가 정할 게 있음
-              </button>
-            </div>
-          </>
-        ) : (
-          <div>
-            <h2 className="now muted">지금 할 것이 없습니다</h2>
-            {day.skipped.length > 0 && (
-              <button type="button" onClick={() => day.save({ skipped: [], pinned: day.pinned })}>
-                건너뛴 {day.skipped.length}개 다시 보기
-              </button>
-            )}
-          </div>
-        )}
-      </section>
-
-      <div className="grid">
-        <section className="card" aria-labelledby="last-title">
-          <p className="label" id="last-title">
-            마지막에 한 일
-          </p>
-          {changes.length === 0 ? (
-            <p className="muted">아직 기록이 없습니다</p>
-          ) : (
-            <ul className="list">
-              {changes.map((c) => (
-                <li key={c.id}>
-                  <span className="when">{timeFmt.format(new Date(c.at))}</span>
-                  <span className="who">
-                    {c.actor}
-                    {c.session ? ` · ${c.session}` : ""}
-                  </span>
-                  <span className="what">
-                    「{titleOf(c)}」 {ACTION[c.action] ?? c.action}
-                    {c.action === "status" && c.details
-                      ? ` (${STATUS[c.details.to as Status] ?? c.details.to})`
-                      : ""}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="card" aria-labelledby="decide-title">
-          <p className="label" id="decide-title">
-            내가 정할 것 <span className="count">{decide.length}</span>
-          </p>
-          {decide.length === 0 ? (
-            <p className="muted">기다리는 결정이 없습니다</p>
-          ) : (
-            <ul className="list">
-              {decide.map((t) => (
-                <li key={t.id} className="item">
-                  <span className="what">{t.title}</span>
-                  <button type="button" className="small" onClick={act(() => api.unblock(t.id))}>
-                    정했음
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="card" aria-labelledby="due-title">
-          <p className="label" id="due-title">
-            마감 가까운 것 <span className="count">{soon.length}</span>
-          </p>
-          {soon.length === 0 ? (
-            <p className="muted">7일 안에 마감이 없습니다</p>
-          ) : (
-            <ul className="list">
-              {soon.map((t) => {
-                const d = dDay(t.dueAt as string, now);
-                return (
-                  <li key={t.id} className="item">
-                    <span className={`chip ${d < 0 ? "late" : d <= 1 ? "warn" : ""}`}>
-                      {dLabel(d)}
-                    </span>
-                    <span className="what">{t.title}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+  const header = (
+    <header className="top">
+      <div>
+        <h1>내일은내일</h1>
+        <p className="tagline">내 일은 naeil에서</p>
       </div>
+      <div className="top-right">
+        <fieldset className="seg" aria-label="보기">
+          <button type="button" aria-pressed={mode === "board"} onClick={() => setMode("board")}>
+            전체 보기
+          </button>
+          <button type="button" aria-pressed={mode === "focus"} onClick={() => setMode("focus")}>
+            집중 보기
+          </button>
+        </fieldset>
+        <p className="date">{todayFmt.format(now)}</p>
+      </div>
+    </header>
+  );
 
-      <AddTask projects={projects} onDone={load} onError={setError} />
+  // 크게 보기: 상세를 페이지 하나로
+  if (open.ref && open.full) {
+    return (
+      <main className="shell narrow">
+        {header}
+        {panel}
+      </main>
+    );
+  }
 
-      <section className="card">
-        <button
-          type="button"
-          className="ghost wide"
-          onClick={() => setShowAll(!showAll)}
-          aria-expanded={showAll}
-        >
-          할 일 전체 {tasks.filter((t) => t.status !== "done").length}개{" "}
-          {showAll ? "접기" : "펼치기"}
-        </button>
-        {showAll && (
-          <ul className="list all">
-            {tasks.map((t) => (
-              <li key={t.id} className="item">
-                <select
-                  aria-label={`「${t.title}」 상태`}
-                  value={t.status}
-                  onChange={(e) => void act(() => api.setStatus(t.id, e.target.value as Status))()}
-                >
-                  {(Object.keys(STATUS) as Status[]).map((s) => (
-                    <option key={s} value={s}>
-                      {STATUS[s]}
-                    </option>
-                  ))}
-                </select>
-                <span className={`what ${t.status === "done" ? "done" : ""}`}>{t.title}</span>
-                <span className="muted small-text">
-                  {projectName(t.projectId)}
-                  {t.blockedReason
-                    ? ` · ${BLOCKED[t.blockedReason]}${t.heldBy ? `(${t.heldBy})` : ""}`
-                    : ""}
-                </span>
-                <button type="button" className="small ghost" onClick={act(() => api.trash(t.id))}>
-                  휴지통
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <footer className="foot">
-        <button
-          type="button"
-          className="ghost small"
-          onClick={() => {
-            setKey(null);
-            setHasKey(false);
+  const nowCard = current && (
+    <section className={`card hero ${mode === "focus" ? "focus" : ""}`} aria-labelledby="now-title">
+      <p className="label" id="now-title">
+        지금 할 것
+      </p>
+      <h2 className="now">
+        <a
+          className="now-link"
+          href={urlFor({ type: "task", id: current.id })}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey) return;
+            e.preventDefault();
+            openItem(
+              { type: "task", id: current.id },
+              [{ type: "task", id: current.id }],
+              e.currentTarget,
+            );
           }}
         >
-          출입증 바꾸기
+          {current.title}
+        </a>
+      </h2>
+      <p className="meta">
+        {projects.find((p) => p.id === current.projectId)?.name}
+        {current.status === "doing" && <span className="chip tone-info">하는 중</span>}
+        {current.dueAt && <span className="chip">{dLabel(dDay(current.dueAt, now))}</span>}
+        {day.pinned === current.id && <span className="chip">오늘은 이거</span>}
+      </p>
+      <div className="row">
+        {current.status === "todo" ? (
+          <button
+            type="button"
+            className="primary"
+            onClick={() => void run(() => api.setStatus(current.id, "doing"))}
+          >
+            시작
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="primary"
+            onClick={() => void run(() => api.setStatus(current.id, "done"))}
+          >
+            끝냄
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() =>
+            day.save({
+              skipped: [...day.skipped, current.id],
+              pinned: day.pinned === current.id ? null : day.pinned,
+            })
+          }
+        >
+          건너뛰기
         </button>
-      </footer>
-    </main>
+        {day.pinned !== current.id && (
+          <button type="button" onClick={() => day.save({ ...day, pinned: current.id })}>
+            오늘은 이거
+          </button>
+        )}
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => void run(() => api.block(current.id, "my_decision"))}
+        >
+          내가 정할 게 있음
+        </button>
+      </div>
+    </section>
+  );
+
+  const emptyNow = (
+    <section className={`card hero ${mode === "focus" ? "focus" : ""}`}>
+      <p className="label">지금 할 것</p>
+      <h2 className="now muted">
+        {mode === "focus" ? "오늘 할 일을 다 끝냈습니다" : "지금 할 것이 없습니다"}
+      </h2>
+      <div className="row">
+        {day.skipped.length > 0 && (
+          <button type="button" onClick={() => day.save({ skipped: [], pinned: day.pinned })}>
+            건너뛴 {day.skipped.length}개 다시 보기
+          </button>
+        )}
+      </div>
+    </section>
+  );
+
+  return (
+    <div className={open.ref ? "layout with-panel" : "layout"}>
+      <main className="shell">
+        {header}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+
+        {current ? nowCard : emptyNow}
+
+        {mode === "focus" ? (
+          <section className="card focus-foot" aria-labelledby="done-title">
+            <p className="label" id="done-title">
+              오늘 끝낸 일 <span className="count">{doneTodayCards.length}</span>
+              {decideCards.length > 0 && (
+                <button type="button" className="ghost small" onClick={() => setMode("board")}>
+                  내가 정할 것 {decideCards.length}개 보기
+                </button>
+              )}
+            </p>
+            <CardList
+              cards={doneTodayCards}
+              onOpen={openItem}
+              openRef={open.ref}
+              empty="아직 끝낸 일이 없습니다"
+            />
+          </section>
+        ) : (
+          <>
+            <div className="grid">
+              <section className="card" aria-labelledby="last-title">
+                <p className="label" id="last-title">
+                  마지막에 한 일
+                </p>
+                <CardList
+                  cards={recentCards}
+                  onOpen={openItem}
+                  openRef={open.ref}
+                  empty="아직 기록이 없습니다"
+                />
+              </section>
+              <section className="card" aria-labelledby="decide-title">
+                <p className="label" id="decide-title">
+                  내가 정할 것 <span className="count">{decideCards.length}</span>
+                </p>
+                <CardList
+                  cards={decideCards}
+                  onOpen={openItem}
+                  onAction={onAction}
+                  openRef={open.ref}
+                  empty="기다리는 결정이 없습니다"
+                />
+              </section>
+              <section className="card" aria-labelledby="due-title">
+                <p className="label" id="due-title">
+                  마감 가까운 것 <span className="count">{soonCards.length}</span>
+                </p>
+                <CardList
+                  cards={soonCards}
+                  onOpen={openItem}
+                  openRef={open.ref}
+                  empty="7일 안에 마감이 없습니다"
+                />
+              </section>
+            </div>
+
+            <AddTask projects={projects} onDone={reload} onError={setError} />
+
+            <section className="card">
+              <button
+                type="button"
+                className="ghost wide"
+                onClick={() => setShowAll(!showAll)}
+                aria-expanded={showAll}
+              >
+                할 일 전체 {tasks.filter((t) => t.status !== "done").length}개{" "}
+                {showAll ? "접기" : "펼치기"}
+              </button>
+              {showAll && (
+                <div className="all-list">
+                  <CardList
+                    cards={allCards}
+                    onOpen={openItem}
+                    onAction={onAction}
+                    openRef={open.ref}
+                    empty="할 일이 없습니다"
+                  />
+                </div>
+              )}
+            </section>
+          </>
+        )}
+
+        <footer className="foot">
+          <button
+            type="button"
+            className="ghost small"
+            onClick={() => {
+              setKey(null);
+              setHasKey(false);
+            }}
+          >
+            출입증 바꾸기
+          </button>
+        </footer>
+      </main>
+      {panel}
+    </div>
   );
 }
 
