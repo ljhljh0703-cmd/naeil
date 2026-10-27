@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ApiTask, Change } from "./api.js";
+import type { ApiTask, Change, Milestone } from "./api.js";
 import { type Ctx, cardOf, detailOf, hrefFor, parseRef, refKey } from "./items.js";
 
 const now = new Date("2026-10-26T03:00:00Z");
@@ -36,6 +36,7 @@ const ctx = (over: Partial<Ctx> = {}): Ctx => ({
   tasks: [task()],
   changes: [change()],
   projects: [{ id: "p1", name: "내일은내일" }],
+  milestones: [],
   now,
   ...over,
 });
@@ -136,6 +137,104 @@ describe("한 일 카드·상세", () => {
     expect(target && "items" in target && target.items[0]?.ref).toEqual({
       type: "task",
       id: task().id,
+    });
+  });
+});
+
+const milestone = (over: Partial<Milestone> = {}): Milestone => ({
+  id: "22222222-2222-4222-8222-222222222222",
+  projectId: "p1",
+  name: "첫 화면 공개",
+  dueAt: "2026-10-28T14:59:59.000Z",
+  etag: '"v1"',
+  createdAt: "2026-10-25T00:00:00.000Z",
+  updatedAt: "2026-10-25T00:00:00.000Z",
+  ...over,
+});
+const M = milestone().id;
+
+describe("마일스톤 카드·상세", () => {
+  it("카드 = 다음 표시 + 남은 날 + 끝난 수", () => {
+    const c = cardOf(
+      ctx({
+        milestones: [milestone()],
+        tasks: [task({ milestoneId: M, status: "done" }), task({ id: "t2", milestoneId: M })],
+      }),
+      { type: "milestone", id: M },
+    );
+    expect(c?.status?.label).toBe("다음");
+    expect(c?.chips?.map((x) => x.label)).toEqual(["D-2", "1/2 끝"]);
+  });
+
+  it("다 끝나면 「끝」, 남은 날 칩은 뺀다", () => {
+    const c = cardOf(
+      ctx({ milestones: [milestone()], tasks: [task({ milestoneId: M, status: "done" })] }),
+      {
+        type: "milestone",
+        id: M,
+      },
+    );
+    expect(c?.status?.label).toBe("끝");
+    expect(c?.chips?.map((x) => x.label)).toEqual(["1/1 끝"]);
+  });
+
+  it("상세에 날짜 칸과 속한 할 일 카드", () => {
+    const d = detailOf(ctx({ milestones: [milestone()], tasks: [task({ milestoneId: M })] }), {
+      type: "milestone",
+      id: M,
+    });
+    const actions = d?.sections.find((s) => s.kind === "actions");
+    const due =
+      actions && "actions" in actions
+        ? actions.actions.find((a) => a.id === "milestone-due")
+        : undefined;
+    expect(due?.control).toEqual({ kind: "date", value: "2026-10-28" });
+    const list = d?.sections.find((s) => s.id === "tasks");
+    expect(list && "items" in list && list.items).toHaveLength(1);
+    expect(parseRef(`milestone:${M}`)).toEqual({ type: "milestone", id: M });
+  });
+
+  it("할 일 상세: 같은 프로젝트 마일스톤만 고를 수 있고, 지금 마일스톤 이름이 보인다", () => {
+    const d = detailOf(
+      ctx({
+        milestones: [milestone(), milestone({ id: "m-other", projectId: "p2", name: "남의 것" })],
+        tasks: [task({ milestoneId: M })],
+      }),
+      { type: "task", id: task().id },
+    );
+    const actions = d?.sections.find((s) => s.kind === "actions");
+    const move =
+      actions && "actions" in actions
+        ? actions.actions.find((a) => a.id === "move-milestone")
+        : undefined;
+    expect(move?.control?.kind === "select" && move.control.choices.map((c) => c.label)).toEqual([
+      "마일스톤 없음",
+      "첫 화면 공개",
+    ]);
+    expect(move?.control?.value).toBe(M);
+    const fields = d?.sections.find((s) => s.id === "fields");
+    expect(fields && "fields" in fields && fields.fields[0]).toEqual({
+      label: "마일스톤",
+      value: "첫 화면 공개",
+    });
+  });
+
+  it("마일스톤 변경 기록 카드는 마일스톤 이름을 쓰고, 대상 카드로 이어진다", () => {
+    const ch = change({
+      id: 9,
+      entity: "milestone",
+      entityId: M,
+      action: "create",
+      details: { name: "첫 화면 공개" },
+    });
+    const c2 = ctx({ milestones: [milestone()], changes: [ch] });
+    expect(cardOf(c2, { type: "change", id: "9" })?.title).toBe("「첫 화면 공개」 만듦");
+    const target = detailOf(c2, { type: "change", id: "9" })?.sections.find(
+      (s) => s.id === "target",
+    );
+    expect(target && "items" in target && target.items[0]?.ref).toEqual({
+      type: "milestone",
+      id: M,
     });
   });
 });

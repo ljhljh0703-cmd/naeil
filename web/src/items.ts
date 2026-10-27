@@ -2,16 +2,26 @@
 // 형태면 좋겠음 누르면 볼 수 있게. 이런 범용성 확장성」).
 // 근거 조사: 카드 앞면은 적게, 상세는 칸 배열 (Trello 카드 뒷면 칸 · Backstage 종류별 탭 · Jira 빈 칸 숨김).
 // 새 종류(마일스톤 · AI 세션 · 스킬)는 registerItemType 하나로 끼운다. 칸 모양은 공통 틀이 그린다.
-import type { ApiTask, Change, Project } from "./api.js";
+import type { ApiTask, Change, Milestone, Project } from "./api.js";
+import { groupBoard, isComplete, progressOf, sortForBoard } from "./board.js";
 import { ACTION, BLOCKED, dayOf, dLabel, STATUS, timeOf, whoOf } from "./labels.js";
-import { dDay, type Status } from "./today.js";
+import { dDay, kstDate, type Status } from "./today.js";
 
-export type ItemType = "task" | "change";
+export type ItemType = "task" | "change" | "milestone";
 export type ItemRef = { type: ItemType; id: string };
 
 export type Tone = "neutral" | "info" | "warn" | "done" | "fail";
 export type Chip = { label: string; tone?: Tone };
-export type Action = { id: string; label: string; tone?: "primary" | "default" | "danger" };
+// 버튼 하나, 또는 고르기(select)·날짜 칸. 고르기·날짜는 값이 바뀌면 바로 onAction(값)
+export type Control =
+  | { kind: "select"; value: string; choices: { value: string; label: string }[] }
+  | { kind: "date"; value: string };
+export type Action = {
+  id: string;
+  label: string;
+  tone?: "primary" | "default" | "danger";
+  control?: Control;
+};
 export type Field = { label: string; value: string | null };
 export type Event = { at: string; who?: string; text: string };
 
@@ -40,7 +50,13 @@ export type DetailModel = {
   sections: Section[];
 };
 
-export type Ctx = { tasks: ApiTask[]; changes: Change[]; projects: Project[]; now: Date };
+export type Ctx = {
+  tasks: ApiTask[];
+  changes: Change[];
+  projects: Project[];
+  milestones: Milestone[];
+  now: Date;
+};
 
 type Def<T> = {
   label: string;
@@ -97,6 +113,8 @@ export function detailOf(ctx: Ctx, ref: ItemRef): DetailModel | null {
 const statusTone: Record<Status, Tone> = { todo: "neutral", doing: "info", done: "done" };
 
 const projectName = (ctx: Ctx, id: string) => ctx.projects.find((p) => p.id === id)?.name ?? null;
+const milestoneOf = (ctx: Ctx, id: string | null) =>
+  id ? ctx.milestones.find((m) => m.id === id) : undefined;
 
 function changeText(c: Change): string {
   const base = ACTION[c.action] ?? c.action;
@@ -143,6 +161,21 @@ registerItemType<ApiTask>("task", {
     if (t.status === "done") actions.push({ id: "reopen", label: "다시 열기" });
     if (t.blockedReason === "my_decision") actions.push({ id: "decided", label: "정했음" });
     else if (t.status !== "done") actions.push({ id: "need-decision", label: "내가 정할 게 있음" });
+    const choices = ctx.milestones.filter((m) => m.projectId === t.projectId);
+    if (choices.length > 0) {
+      actions.push({
+        id: "move-milestone",
+        label: "마일스톤",
+        control: {
+          kind: "select",
+          value: milestoneOf(ctx, t.milestoneId) ? (t.milestoneId as string) : "",
+          choices: [
+            { value: "", label: "마일스톤 없음" },
+            ...choices.map((m) => ({ value: m.id, label: m.name })),
+          ],
+        },
+      });
+    }
     actions.push({ id: "trash", label: "휴지통", tone: "danger" });
     return {
       title: t.title,
@@ -154,6 +187,7 @@ registerItemType<ApiTask>("task", {
           id: "fields",
           kind: "fields",
           fields: [
+            { label: "마일스톤", value: milestoneOf(ctx, t.milestoneId)?.name ?? null },
             { label: "멈춘 이유", value: t.blockedReason ? BLOCKED[t.blockedReason] : null },
             { label: "잡은 세션", value: t.heldBy },
             {
@@ -200,10 +234,15 @@ function changeTarget(c: Change, ctx: Ctx): string {
       (typeof c.details?.title === "string" ? c.details.title : "(휴지통)")
     );
   }
+  if (c.entity === "milestone") {
+    return (
+      milestoneOf(ctx, c.entityId)?.name ??
+      (typeof c.details?.name === "string" ? c.details.name : "(휴지통)")
+    );
+  }
   return (
-    (typeof c.details?.name === "string" ? c.details.name : null) ??
     projectName(ctx, c.entityId) ??
-    ""
+    (typeof c.details?.name === "string" ? c.details.name : "(휴지통)")
   );
 }
 
@@ -221,7 +260,8 @@ const DETAIL_KEY: Record<string, string> = {
   cleared_block: "같이 풀린 멈춤",
 };
 
-function detailValue(key: string, v: unknown): string | null {
+function detailValue(key: string, v: unknown, ctx: Ctx): string | null {
+  if (key === "milestone_id") return v ? (milestoneOf(ctx, String(v))?.name ?? "(휴지통)") : "없음";
   if (v === null || v === undefined || v === "") return null;
   const s = String(v);
   if (key === "from" || key === "to") return STATUS[s as Status] ?? s;
@@ -240,11 +280,12 @@ registerItemType<Change>("change", {
     meta: `${timeOf(c.at)} · ${whoOf(c.actor, c.session)}`,
   }),
   detail: (c, ctx) => {
-    const task = c.entity === "task" ? ctx.tasks.find((t) => t.id === c.entityId) : undefined;
-    const taskCard = task ? cardOf(ctx, { type: "task", id: task.id }) : null;
+    const targetRef: ItemRef | null =
+      c.entity === "task" || c.entity === "milestone" ? { type: c.entity, id: c.entityId } : null;
+    const taskCard = targetRef ? cardOf(ctx, targetRef) : null;
     const details = Object.entries(c.details ?? {}).map(([k, v]) => ({
       label: DETAIL_KEY[k] ?? k,
-      value: detailValue(k, v),
+      value: detailValue(k, v, ctx),
     }));
     return {
       title: `「${changeTarget(c, ctx)}」 ${changeText(c)}`,
@@ -262,6 +303,100 @@ registerItemType<Change>("change", {
         },
         { id: "target", kind: "list", title: "대상", items: taskCard ? [taskCard] : [] },
         { id: "details", kind: "fields", title: "바뀐 값", fields: details },
+      ],
+    };
+  },
+});
+
+// ── 마일스톤 ──
+// 카드 앞면 = 이름 + 「다음」 또는 「끝」 + 목표 날짜 + 진행 수. 상세 = 날짜 바꾸기 · 속한 할 일 · 바뀐 기록.
+
+function milestoneStatus(m: Milestone, ctx: Ctx): Chip | undefined {
+  const g = groupBoard(m.projectId, ctx.milestones, ctx.tasks).find(
+    (x) => x.milestone?.id === m.id,
+  );
+  if (!g) return undefined;
+  if (isComplete(g.progress)) return { label: "끝", tone: "done" };
+  if (g.next) return { label: "다음", tone: "info" };
+  return undefined;
+}
+
+const tasksIn = (ctx: Ctx, m: Milestone) =>
+  ctx.tasks.filter((t) => t.milestoneId === m.id && !t.deletedAt);
+
+registerItemType<Milestone>("milestone", {
+  label: "마일스톤",
+  find: (ctx, id) => ctx.milestones.find((m) => m.id === id),
+  card: (m, ctx) => {
+    const p = progressOf(tasksIn(ctx, m));
+    const chips: Chip[] = [];
+    if (m.dueAt && !isComplete(p)) {
+      const d = dDay(m.dueAt, ctx.now);
+      chips.push({ label: dLabel(d), tone: d < 0 ? "fail" : d <= 1 ? "warn" : "neutral" });
+    }
+    chips.push({ label: p.total === 0 ? "할 일 없음" : `${p.done}/${p.total} 끝` });
+    return {
+      ref: { type: "milestone", id: m.id },
+      title: m.name,
+      status: milestoneStatus(m, ctx),
+      chips,
+      meta: projectName(ctx, m.projectId) ?? undefined,
+    };
+  },
+  detail: (m, ctx) => {
+    const list = tasksIn(ctx, m);
+    const p = progressOf(list);
+    return {
+      title: m.name,
+      status: milestoneStatus(m, ctx),
+      meta: projectName(ctx, m.projectId) ?? undefined,
+      sections: [
+        {
+          id: "actions",
+          kind: "actions",
+          actions: [
+            {
+              id: "milestone-due",
+              label: "목표 날짜",
+              control: { kind: "date", value: m.dueAt ? kstDate(new Date(m.dueAt)) : "" },
+            },
+            { id: "milestone-trash", label: "휴지통", tone: "danger" },
+          ],
+        },
+        {
+          id: "fields",
+          kind: "fields",
+          fields: [
+            {
+              label: "목표 날짜",
+              value: m.dueAt ? `${dayOf(m.dueAt)} (${dLabel(dDay(m.dueAt, ctx.now))})` : null,
+            },
+            {
+              label: "진행",
+              value:
+                p.total === 0
+                  ? "속한 할 일 없음"
+                  : `${p.done}/${p.total} 끝${p.doing ? ` · 하는 중 ${p.doing}` : ""} (${p.percent}%)`,
+            },
+            { label: "만든 날", value: timeOf(m.createdAt) },
+          ],
+        },
+        {
+          id: "tasks",
+          kind: "list",
+          title: "속한 할 일",
+          items: sortForBoard(list)
+            .map((t) => cardOf(ctx, { type: "task", id: t.id }))
+            .filter((c): c is CardModel => !!c),
+        },
+        {
+          id: "history",
+          kind: "timeline",
+          title: "바뀐 기록",
+          events: ctx.changes
+            .filter((c) => c.entity === "milestone" && c.entityId === m.id)
+            .map((c) => ({ at: c.at, who: whoOf(c.actor, c.session), text: changeText(c) })),
+        },
       ],
     };
   },

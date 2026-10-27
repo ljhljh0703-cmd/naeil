@@ -1,6 +1,15 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, type ApiTask, api, type Change, getKey, type Project, setKey } from "./api.js";
-import { CardList, DetailPanel, type OpenFn } from "./ItemViews.js";
+import {
+  ApiError,
+  type ApiTask,
+  api,
+  type Change,
+  getKey,
+  type Milestone,
+  type Project,
+  setKey,
+} from "./api.js";
+import { type ActFn, CardList, DetailPanel, type OpenFn } from "./ItemViews.js";
 import {
   type Action,
   type CardModel,
@@ -12,9 +21,11 @@ import {
   refKey,
 } from "./items.js";
 import { dLabel, todayFmt } from "./labels.js";
+import { Board } from "./MilestoneBoard.js";
 import { dDay, dueFromKstDate, dueSoon, kstDate, pickNow, waitingOnMe } from "./today.js";
 
 type Mode = "board" | "focus";
+type Page = "today" | "milestones";
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -102,6 +113,11 @@ export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [changes, setChanges] = useState<Change[]>([]);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [page, setPageState] = useState<Page>(() => load<Page>("naeil.page", "today"));
+  const [boardProject, setBoardProjectState] = useState<string | null>(() =>
+    load<string | null>("naeil.project", null),
+  );
   const [error, setError] = useState<string>();
   const [showAll, setShowAll] = useState(false);
   const [mode, setModeState] = useState<Mode>(() => load<Mode>("naeil.mode", "board"));
@@ -114,11 +130,21 @@ export function App() {
     setModeState(m);
     save("naeil.mode", m);
   };
+  const setPage = (p: Page) => {
+    setPageState(p);
+    save("naeil.page", p);
+  };
+  const setBoardProject = (id: string) => {
+    setBoardProjectState(id);
+    save("naeil.project", id);
+  };
 
   const reload = useCallback(async () => {
     try {
       const [p, t, c] = await Promise.all([api.projects(), api.allTasks(), api.changes()]);
+      const m = await api.allMilestones(p);
       setProjects(p);
+      setMilestones(m);
       setTasks(t);
       setChanges(c);
       setError(undefined);
@@ -171,7 +197,7 @@ export function App() {
       setOpen({ ref: next, full: open.full });
       window.history.replaceState(window.history.state, "", urlFor(next, open.full));
       opener.current = document.querySelector<HTMLElement>(
-        `[data-ref="${refKey(next)}"] .card-link`,
+        `[data-ref="${refKey(next)}"] :is(.card-link, .ms-link)`,
       );
     },
     [open, openList],
@@ -205,14 +231,33 @@ export function App() {
       await fn();
       await reload();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 412) {
+        setError("다른 곳에서 먼저 바뀌었습니다. 새로 불러왔으니 한 번 더 해 주세요.");
+        await reload();
+        return;
+      }
       setError((err as Error).message);
     }
   };
 
-  const onAction = (ref: ItemRef, a: Action) => {
+  const onAction: ActFn = (ref, a, value) => {
+    if (ref.type === "milestone") {
+      const m = milestones.find((x) => x.id === ref.id);
+      if (!m) return;
+      if (a.id === "milestone-due") {
+        void run(() => api.updateMilestone(m, { dueAt: value ? dueFromKstDate(value) : null }));
+      } else if (a.id === "milestone-trash") {
+        void run(async () => {
+          await api.trashMilestone(m.id);
+          if (open.ref && refKey(open.ref) === refKey(ref)) closeItem();
+        });
+      }
+      return;
+    }
     if (ref.type !== "task") return;
     const id = ref.id;
     const byId: Record<string, () => Promise<unknown>> = {
+      "move-milestone": () => api.setMilestone(id, value ? value : null),
       start: () => api.setStatus(id, "doing"),
       done: () => api.setStatus(id, "done"),
       reopen: () => api.revive(id),
@@ -228,7 +273,7 @@ export function App() {
   };
 
   const now = new Date();
-  const ctx: Ctx = { tasks, changes, projects, now };
+  const ctx: Ctx = { tasks, changes, projects, milestones, now };
   const skipped = useMemo(() => new Set(day.skipped), [day.skipped]);
   const current = pickNow(tasks, { skipped, pinnedId: day.pinned });
   const cards = (list: ApiTask[], quick?: (t: ApiTask) => Action | undefined): CardModel[] =>
@@ -305,17 +350,36 @@ export function App() {
         <p className="tagline">내 일은 naeil에서</p>
       </div>
       <div className="top-right">
-        <fieldset className="seg" aria-label="보기">
-          <button type="button" aria-pressed={mode === "board"} onClick={() => setMode("board")}>
-            전체 보기
-          </button>
-          <button type="button" aria-pressed={mode === "focus"} onClick={() => setMode("focus")}>
-            집중 보기
-          </button>
-        </fieldset>
+        <nav aria-label="화면">
+          <fieldset className="seg">
+            <button type="button" aria-pressed={page === "today"} onClick={() => setPage("today")}>
+              오늘
+            </button>
+            <button
+              type="button"
+              aria-pressed={page === "milestones"}
+              onClick={() => setPage("milestones")}
+            >
+              마일스톤
+            </button>
+          </fieldset>
+        </nav>
         <p className="date">{todayFmt.format(now)}</p>
       </div>
     </header>
+  );
+
+  const modeBar = (
+    <div className="toolbar">
+      <fieldset className="seg small" aria-label="오늘 보기 방식">
+        <button type="button" aria-pressed={mode === "board"} onClick={() => setMode("board")}>
+          전체 보기
+        </button>
+        <button type="button" aria-pressed={mode === "focus"} onClick={() => setMode("focus")}>
+          집중 보기
+        </button>
+      </fieldset>
+    </div>
   );
 
   // 크게 보기: 상세를 페이지 하나로
@@ -427,88 +491,104 @@ export function App() {
           </p>
         )}
 
-        {current ? nowCard : emptyNow}
-
-        {mode === "focus" ? (
-          <section className="card focus-foot" aria-labelledby="done-title">
-            <p className="label" id="done-title">
-              오늘 끝낸 일 <span className="count">{doneTodayCards.length}</span>
-              {decideCards.length > 0 && (
-                <button type="button" className="ghost small" onClick={() => setMode("board")}>
-                  내가 정할 것 {decideCards.length}개 보기
-                </button>
-              )}
-            </p>
-            <CardList
-              cards={doneTodayCards}
-              onOpen={openItem}
-              openRef={open.ref}
-              empty="아직 끝낸 일이 없습니다"
-            />
-          </section>
+        {page === "milestones" ? (
+          <Board
+            ctx={ctx}
+            projectId={boardProject}
+            onProject={setBoardProject}
+            onOpen={openItem}
+            onAction={onAction}
+            openRef={open.ref}
+            onReload={reload}
+            onError={setError}
+          />
         ) : (
           <>
-            <div className="grid">
-              <section className="card" aria-labelledby="last-title">
-                <p className="label" id="last-title">
-                  마지막에 한 일
-                </p>
-                <CardList
-                  cards={recentCards}
-                  onOpen={openItem}
-                  openRef={open.ref}
-                  empty="아직 기록이 없습니다"
-                />
-              </section>
-              <section className="card" aria-labelledby="decide-title">
-                <p className="label" id="decide-title">
-                  내가 정할 것 <span className="count">{decideCards.length}</span>
-                </p>
-                <CardList
-                  cards={decideCards}
-                  onOpen={openItem}
-                  onAction={onAction}
-                  openRef={open.ref}
-                  empty="기다리는 결정이 없습니다"
-                />
-              </section>
-              <section className="card" aria-labelledby="due-title">
-                <p className="label" id="due-title">
-                  마감 가까운 것 <span className="count">{soonCards.length}</span>
-                </p>
-                <CardList
-                  cards={soonCards}
-                  onOpen={openItem}
-                  openRef={open.ref}
-                  empty="7일 안에 마감이 없습니다"
-                />
-              </section>
-            </div>
+            {modeBar}
+            {current ? nowCard : emptyNow}
 
-            <AddTask projects={projects} onDone={reload} onError={setError} />
-
-            <section className="card">
-              <button
-                type="button"
-                className="ghost wide"
-                onClick={() => setShowAll(!showAll)}
-                aria-expanded={showAll}
-              >
-                할 일 전체 {tasks.filter((t) => t.status !== "done").length}개{" "}
-                {showAll ? "접기" : "펼치기"}
-              </button>
-              {showAll && (
-                <div className="all-list">
-                  <CardList
-                    cards={allCards}
-                    onOpen={openItem}
-                    onAction={onAction}
-                    openRef={open.ref}
-                    empty="할 일이 없습니다"
-                  />
+            {mode === "focus" ? (
+              <section className="card focus-foot" aria-labelledby="done-title">
+                <p className="label" id="done-title">
+                  오늘 끝낸 일 <span className="count">{doneTodayCards.length}</span>
+                  {decideCards.length > 0 && (
+                    <button type="button" className="ghost small" onClick={() => setMode("board")}>
+                      내가 정할 것 {decideCards.length}개 보기
+                    </button>
+                  )}
+                </p>
+                <CardList
+                  cards={doneTodayCards}
+                  onOpen={openItem}
+                  openRef={open.ref}
+                  empty="아직 끝낸 일이 없습니다"
+                />
+              </section>
+            ) : (
+              <>
+                <div className="grid">
+                  <section className="card" aria-labelledby="last-title">
+                    <p className="label" id="last-title">
+                      마지막에 한 일
+                    </p>
+                    <CardList
+                      cards={recentCards}
+                      onOpen={openItem}
+                      openRef={open.ref}
+                      empty="아직 기록이 없습니다"
+                    />
+                  </section>
+                  <section className="card" aria-labelledby="decide-title">
+                    <p className="label" id="decide-title">
+                      내가 정할 것 <span className="count">{decideCards.length}</span>
+                    </p>
+                    <CardList
+                      cards={decideCards}
+                      onOpen={openItem}
+                      onAction={onAction}
+                      openRef={open.ref}
+                      empty="기다리는 결정이 없습니다"
+                    />
+                  </section>
+                  <section className="card" aria-labelledby="due-title">
+                    <p className="label" id="due-title">
+                      마감 가까운 것 <span className="count">{soonCards.length}</span>
+                    </p>
+                    <CardList
+                      cards={soonCards}
+                      onOpen={openItem}
+                      openRef={open.ref}
+                      empty="7일 안에 마감이 없습니다"
+                    />
+                  </section>
                 </div>
-              )}
-            </section>
+
+                <AddTask projects={projects} onDone={reload} onError={setError} />
+
+                <section className="card">
+                  <button
+                    type="button"
+                    className="ghost wide"
+                    onClick={() => setShowAll(!showAll)}
+                    aria-expanded={showAll}
+                  >
+                    할 일 전체 {tasks.filter((t) => t.status !== "done").length}개{" "}
+                    {showAll ? "접기" : "펼치기"}
+                  </button>
+                  {showAll && (
+                    <div className="all-list">
+                      <CardList
+                        cards={allCards}
+                        onOpen={openItem}
+                        onAction={onAction}
+                        openRef={open.ref}
+                        empty="할 일이 없습니다"
+                      />
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
           </>
         )}
 
