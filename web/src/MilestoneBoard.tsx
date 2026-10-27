@@ -103,7 +103,13 @@ export function Board({
         ))}
       </ol>
 
-      <AddToBoard project={project} ctx={ctx} onDone={onReload} onError={onError} />
+      <AddToBoard
+        key={project.id}
+        project={project}
+        ctx={ctx}
+        onDone={onReload}
+        onError={onError}
+      />
     </>
   );
 }
