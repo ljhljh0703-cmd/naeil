@@ -1,9 +1,10 @@
 // 표 구조 변경을 파일(migrations/NNN_이름.up.sql / .down.sql)로 남기고, 올리기·되돌리기를 한다.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type Database from "better-sqlite3";
 
-export const MIGRATIONS_DIR = new URL("../../migrations/", import.meta.url).pathname;
+export const MIGRATIONS_DIR = fileURLToPath(new URL("../../migrations/", import.meta.url));
 
 type Migration = { version: string; up: string; down: string };
 
