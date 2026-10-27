@@ -9,7 +9,6 @@ import {
   type Project,
   setKey,
 } from "./api.js";
-import { Board } from "./Board.js";
 import { type ActFn, CardList, DetailPanel, type OpenFn } from "./ItemViews.js";
 import {
   type Action,
@@ -22,6 +21,7 @@ import {
   refKey,
 } from "./items.js";
 import { dLabel, todayFmt } from "./labels.js";
+import { Board } from "./MilestoneBoard.js";
 import { dDay, dueFromKstDate, dueSoon, kstDate, pickNow, waitingOnMe } from "./today.js";
 
 type Mode = "board" | "focus";
