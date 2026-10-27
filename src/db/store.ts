@@ -15,10 +15,27 @@ export type Project = {
   id: string;
   workspace_id: string;
   name: string;
+  version: number;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
 };
+
+export type ProjectPatch = { name?: string };
+
+export type Milestone = {
+  id: string;
+  workspace_id: string;
+  project_id: string;
+  name: string;
+  due_at: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+
+export type MilestonePatch = { name?: string; dueAt?: string | null };
 
 export type Task = {
   id: string;
@@ -73,7 +90,19 @@ export type TaskPatch = {
 type Clock = () => Date;
 
 // 시각은 어떤 모양으로 와도 세계 표준시 한 가지 모양으로 저장한다 (+09:00, 공백 구분 등)
-const utc = (v: string | null | undefined) => (v == null ? null : new Date(v).toISOString());
+const utc = (v: string | null | undefined) => {
+  if (v == null) return null;
+  const date = new Date(v);
+  // 런타임 변환 실패와 UTC 변환 후 응답 명세의 네 자리 연도를 벗어나는 값은 입력 오류다.
+  if (
+    !Number.isFinite(date.getTime()) ||
+    date.getUTCFullYear() < 0 ||
+    date.getUTCFullYear() > 9999
+  ) {
+    throw new BadInput("dueAt을 저장 가능한 시각으로 보내세요 (예: 2026-11-01T09:00:00+09:00)");
+  }
+  return date.toISOString();
+};
 
 function norm(who: Who): { actor: string; session: string | null } {
   return typeof who === "string" ? { actor: who, session: null } : { session: null, ...who };
@@ -113,12 +142,14 @@ export class Store {
   createProject(who: Who, name: string): string {
     const id = randomUUID();
     const t = this.now();
-    this.db
-      .prepare(
-        "INSERT INTO projects (id, workspace_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-      )
-      .run(id, this.workspace, name, t, t);
-    this.log(who, "project", id, "create", { name });
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          "INSERT INTO projects (id, workspace_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run(id, this.workspace, name, t, t);
+      this.log(who, "project", id, "create", { name });
+    })();
     return id;
   }
 
@@ -138,18 +169,130 @@ export class Store {
       .all(this.workspace) as Project[];
   }
 
+  private mustProject(id: string): Project {
+    const project = this.getProject(id);
+    if (!project) throw new NotFound(`프로젝트가 없음: ${id}`);
+    return project;
+  }
+
+  // 표 이름은 이 두 값만 사용한다. 판 검사와 변경은 하나의 UPDATE로 처리한다.
+  private bumpEntity(
+    table: "projects" | "milestones",
+    id: string,
+    expectedVersion: number | undefined,
+    set: string,
+    args: unknown[],
+  ): void {
+    const result = this.db
+      .prepare(
+        `UPDATE ${table} SET ${set}, version = version + 1, updated_at = ?
+         WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL
+         ${expectedVersion === undefined ? "" : "AND version = ?"}`,
+      )
+      .run(
+        ...args,
+        this.now(),
+        id,
+        this.workspace,
+        ...(expectedVersion === undefined ? [] : [expectedVersion]),
+      );
+    if (result.changes === 0) throw new VersionMismatch();
+  }
+
+  updateProject(who: Who, id: string, patch: ProjectPatch, expectedVersion?: number): void {
+    this.db.transaction(() => {
+      const before = this.mustProject(id);
+      if (expectedVersion !== undefined && before.version !== expectedVersion) {
+        throw new VersionMismatch();
+      }
+      if (patch.name === undefined) return;
+      this.bumpEntity("projects", id, expectedVersion, "name = ?", [patch.name]);
+      this.log(who, "project", id, "update", { name: patch.name });
+    })();
+  }
+
+  trashProject(who: Who, id: string): void {
+    this.db.transaction(() => {
+      this.mustProject(id);
+      this.bumpEntity("projects", id, undefined, "deleted_at = ?", [this.now()]);
+      this.log(who, "project", id, "trash");
+    })();
+  }
+
   // ── 마일스톤 ──
 
-  createMilestone(who: Who, projectId: string, name: string, dueAt?: string): string {
-    const id = randomUUID();
-    const t = this.now();
-    this.db
+  createMilestone(who: Who, projectId: string, name: string, dueAt?: string | null): string {
+    return this.db.transaction(() => {
+      this.mustProject(projectId);
+      const id = randomUUID();
+      const t = this.now();
+      const due = utc(dueAt);
+      this.db
+        .prepare(
+          "INSERT INTO milestones (id, workspace_id, project_id, name, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(id, this.workspace, projectId, name, due, t, t);
+      this.log(who, "milestone", id, "create", { name, due_at: due });
+      return id;
+    })();
+  }
+
+  getMilestone(id: string, opts: { includeTrashed?: boolean } = {}): Milestone | undefined {
+    return this.db
       .prepare(
-        "INSERT INTO milestones (id, workspace_id, project_id, name, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        `SELECT * FROM milestones WHERE id = ? AND workspace_id = ? ${opts.includeTrashed ? "" : "AND deleted_at IS NULL"}`,
       )
-      .run(id, this.workspace, projectId, name, utc(dueAt), t, t);
-    this.log(who, "milestone", id, "create", { name, due_at: dueAt ?? null });
-    return id;
+      .get(id, this.workspace) as Milestone | undefined;
+  }
+
+  private mustMilestone(id: string): Milestone {
+    const milestone = this.getMilestone(id);
+    if (!milestone) throw new NotFound(`마일스톤이 없음: ${id}`);
+    return milestone;
+  }
+
+  listMilestones(projectId: string): Milestone[] {
+    this.mustProject(projectId);
+    return this.db
+      .prepare(
+        `SELECT * FROM milestones WHERE project_id = ? AND workspace_id = ? AND deleted_at IS NULL
+         ORDER BY due_at IS NULL, due_at, created_at, id`,
+      )
+      .all(projectId, this.workspace) as Milestone[];
+  }
+
+  updateMilestone(who: Who, id: string, patch: MilestonePatch, expectedVersion?: number): void {
+    this.db.transaction(() => {
+      const before = this.mustMilestone(id);
+      if (expectedVersion !== undefined && before.version !== expectedVersion) {
+        throw new VersionMismatch();
+      }
+      const sets: string[] = [];
+      const args: unknown[] = [];
+      const changed: Record<string, unknown> = {};
+      if (patch.name !== undefined) {
+        sets.push("name = ?");
+        args.push(patch.name);
+        changed.name = patch.name;
+      }
+      if (patch.dueAt !== undefined) {
+        sets.push("due_at = ?");
+        const due = utc(patch.dueAt);
+        args.push(due);
+        changed.due_at = due;
+      }
+      if (sets.length === 0) return;
+      this.bumpEntity("milestones", id, expectedVersion, sets.join(", "), args);
+      this.log(who, "milestone", id, "update", changed);
+    })();
+  }
+
+  trashMilestone(who: Who, id: string): void {
+    this.db.transaction(() => {
+      this.mustMilestone(id);
+      this.bumpEntity("milestones", id, undefined, "deleted_at = ?", [this.now()]);
+      this.log(who, "milestone", id, "trash");
+    })();
   }
 
   private milestoneInProject(milestoneId: string, projectId: string): boolean {
