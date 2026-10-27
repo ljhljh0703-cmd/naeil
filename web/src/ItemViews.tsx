@@ -1,5 +1,5 @@
 // 카드와 상세 칸을 그리는 공통 부품. 종류별 화면은 만들지 않고 items.ts 의 모양만 받는다.
-import { type MouseEvent, useEffect, useRef } from "react";
+import { type MouseEvent, useEffect, useId, useRef } from "react";
 import {
   type Action,
   type CardModel,
@@ -12,6 +12,7 @@ import {
 import { timeOf } from "./labels.js";
 
 export type OpenFn = (ref: ItemRef, list: ItemRef[], opener: HTMLElement) => void;
+export type ActFn = (ref: ItemRef, action: Action, value?: string) => void;
 
 // 카드 전체를 누를 수 있게. 제목은 진짜 링크(새 탭·주소 복사 가능), 그 위에 덮개를 늘려 카드 어디를 눌러도 열린다.
 // 카드 안 버튼은 덮개 위로 올린다 (버튼 안에 버튼을 넣지 않는다).
@@ -25,7 +26,7 @@ export function ItemCard({
   card: CardModel;
   list: ItemRef[];
   onOpen: OpenFn;
-  onAction?: (ref: ItemRef, action: Action) => void;
+  onAction?: ActFn;
   selected?: boolean;
 }) {
   const click = (e: MouseEvent<HTMLAnchorElement>) => {
@@ -81,7 +82,7 @@ export function CardList({
 }: {
   cards: CardModel[];
   onOpen: OpenFn;
-  onAction?: (ref: ItemRef, action: Action) => void;
+  onAction?: ActFn;
   openRef: ItemRef | null;
   empty: string;
 }) {
@@ -103,6 +104,29 @@ export function CardList({
   );
 }
 
+// 고르기·날짜 칸. 이름표를 같이 보여 준다 (화면낭독기도 같은 이름을 읽음)
+function ControlView({ action, onChange }: { action: Action; onChange: (v: string) => void }) {
+  const id = useId();
+  const c = action.control;
+  if (!c) return null;
+  return (
+    <div className="control">
+      <label htmlFor={id}>{action.label}</label>
+      {c.kind === "select" ? (
+        <select id={id} value={c.value} onChange={(e) => onChange(e.target.value)}>
+          {c.choices.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input id={id} type="date" value={c.value} onChange={(e) => onChange(e.target.value)} />
+      )}
+    </div>
+  );
+}
+
 function SectionView({
   s,
   onOpen,
@@ -111,7 +135,7 @@ function SectionView({
 }: {
   s: Section;
   onOpen: OpenFn;
-  onAction: (ref: ItemRef, action: Action) => void;
+  onAction: ActFn;
   itemRef: ItemRef;
 }) {
   return (
@@ -119,18 +143,22 @@ function SectionView({
       {"title" in s && s.title && <h3>{s.title}</h3>}
       {s.kind === "actions" && (
         <div className="row">
-          {s.actions.map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              className={
-                a.tone === "primary" ? "primary" : a.tone === "danger" ? "ghost danger" : ""
-              }
-              onClick={() => onAction(itemRef, a)}
-            >
-              {a.label}
-            </button>
-          ))}
+          {s.actions.map((a) =>
+            a.control ? (
+              <ControlView key={a.id} action={a} onChange={(v) => onAction(itemRef, a, v)} />
+            ) : (
+              <button
+                key={a.id}
+                type="button"
+                className={
+                  a.tone === "primary" ? "primary" : a.tone === "danger" ? "ghost danger" : ""
+                }
+                onClick={() => onAction(itemRef, a)}
+              >
+                {a.label}
+              </button>
+            ),
+          )}
         </div>
       )}
       {s.kind === "fields" && (
@@ -182,7 +210,7 @@ export function DetailPanel({
   onClose: () => void;
   onMove: (step: 1 | -1) => void;
   onOpen: OpenFn;
-  onAction: (ref: ItemRef, action: Action) => void;
+  onAction: ActFn;
   onExpand: (ref: ItemRef) => void;
   full: boolean;
 }) {
