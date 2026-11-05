@@ -40,18 +40,23 @@ paths:
       tags: [system]
       operationId: getHealth
       summary: 상태 확인
-      description: 버전 없이 둔다. 자동 재시작·알림이 이 주소만 본다. 로그인 없이 열린다.
+      description: |
+        버전 없이 둔다. 자동 재시작과 알림이 이 주소만 본다. 로그인 없이 열린다.
+        자료 파일을 실제로 읽어 보고, 켤 때 연 파일이 그 자리에 그대로 있는지까지 본다.
+        켜진 채 파일이 지워졌거나(missing) 백업본으로 바뀌었으면(replaced) 503. 다시 켜면 새 파일을 연다.
+        화면 파일(web) 유무는 알려만 주고 ok 에는 넣지 않는다 (AI 세션은 화면 없이도 쓴다).
       security: []
       responses:
         "200":
-          description: 살아 있음
+          description: 살아 있고 자료가 읽힘
           content:
             application/json:
-              schema:
-                type: object
-                required: [ok]
-                properties:
-                  ok: { type: boolean, const: true }
+              schema: { $ref: "#/components/schemas/Health" }
+        "503":
+          description: 살아는 있으나 자료를 믿을 수 없음. 다시 켜야 함
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
 
   /v1/projects:
     get:
@@ -583,6 +588,25 @@ components:
           schema: { $ref: "#/components/schemas/Problem" }
 
   schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [ok, checks]
+      properties:
+        ok: { type: boolean }
+        checks:
+          type: object
+          additionalProperties: false
+          required: [db, web]
+          properties:
+            db:
+              type: string
+              enum: [ok, missing, replaced, error]
+              description: ok = 읽힘, missing = 파일이 사라짐, replaced = 다른 파일로 바뀜, error = 읽기 실패
+            web:
+              type: string
+              enum: [ok, missing, "off"]
+              description: ok = 화면 있음, missing = 화면을 굽지 않음, off = 화면 없이 켬(시험, AI 전용)
     Status:
       type: string
       enum: [todo, doing, done]

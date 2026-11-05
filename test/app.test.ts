@@ -13,13 +13,21 @@ describe("기본 서버", () => {
   it("상태 확인 주소가 ok를 준다", async () => {
     const app = buildApp();
     const res = await app.inject({ method: "GET", url: "/health" });
-    expect(res.json()).toEqual({ ok: true });
+    expect(res.json()).toEqual({ ok: true, checks: { db: "ok", web: "off" } });
   });
 });
 
 describe("설정", () => {
   it("기본값은 이 컴퓨터 안에서만 열린다", () => {
-    expect(loadConfig({})).toEqual({ host: "127.0.0.1", port: 3700, dbPath: "data/naeil.db" });
+    const c = loadConfig(
+      {},
+      { root: "/repo", platform: "linux", home: "/home/me", exists: () => false },
+    );
+    expect(c).toMatchObject({
+      host: "127.0.0.1",
+      port: 3700,
+      dbPath: "/home/me/.local/share/naeil/naeil.db",
+    });
   });
 
   it("잘못된 포트는 막는다", () => {

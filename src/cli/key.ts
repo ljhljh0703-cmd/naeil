@@ -7,9 +7,13 @@
 import { createKey, listKeys, revokeKey } from "../auth.js";
 import { loadConfig } from "../config.js";
 import { openDb } from "../db/connection.js";
+import { loadEnv } from "../paths.js";
 
 const [cmd, name] = process.argv.slice(2);
-const db = openDb(loadConfig().dbPath);
+loadEnv();
+const config = loadConfig();
+console.error(`자료 파일: ${config.dbPath}`);
+const db = openDb(config.dbPath);
 
 function usage(): never {
   console.error("쓰는 법: npm run key -- new <이름> | revoke <이름> | list");
