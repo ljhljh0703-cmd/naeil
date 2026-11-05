@@ -893,3 +893,12 @@ button.danger {
   min-width: 0;
   min-height: 40px;
 }
+
+/* 오류 줄 + 다시 시도 */
+div.error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2) var(--s3);
+}

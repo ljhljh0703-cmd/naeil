@@ -119,6 +119,9 @@ export function App() {
     load<string | null>("naeil.project", null),
   );
   const [error, setError] = useState<string>();
+  // 첫 불러오기가 끝나기 전에는 빈 화면(「할 일이 없습니다」)을 보이지 않는다
+  const [loaded, setLoaded] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [mode, setModeState] = useState<Mode>(() => load<Mode>("naeil.mode", "board"));
   const [open, setOpen] = useState(readUrl);
@@ -148,6 +151,7 @@ export function App() {
       setTasks(t);
       setChanges(c);
       setError(undefined);
+      setLoaded(true);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setKey(null);
@@ -487,12 +491,30 @@ export function App() {
       <main className="shell">
         {header}
         {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
+          <div className="error" role="alert">
+            <span>{error}</span>
+            <button
+              type="button"
+              className="small"
+              disabled={retrying}
+              onClick={async () => {
+                setRetrying(true);
+                await reload();
+                setRetrying(false);
+              }}
+            >
+              {retrying ? "다시 불러오는 중" : "다시 시도"}
+            </button>
+          </div>
         )}
 
-        {page === "milestones" ? (
+        {!loaded ? (
+          <section className="card">
+            <p className="muted" role="status">
+              {error ? "아직 불러오지 못했습니다." : "불러오는 중입니다."}
+            </p>
+          </section>
+        ) : page === "milestones" ? (
           <Board
             ctx={ctx}
             projectId={boardProject}

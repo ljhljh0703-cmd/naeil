@@ -63,22 +63,37 @@ export class ApiError extends Error {
   }
 }
 
+// 서버에 닿지 못했을 때(꺼짐, 주소 틀림, 연결 끊김) 브라우저는 영어 「Failed to fetch」만 준다. 우리 말로 바꾼다
+export const OFFLINE =
+  "서버에 연결되지 않습니다. 맥에서 서버가 켜져 있는지 확인한 뒤 다시 시도해 주세요.";
+
 async function call<T>(
   method: string,
   url: string,
   body?: unknown,
   extra: Record<string, string> = {},
 ) {
-  const res = await fetch(url, {
-    method,
-    headers: {
-      authorization: `Bearer ${getKey() ?? ""}`,
-      ...(body !== undefined ? { "content-type": "application/json" } : {}),
-      ...extra,
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: {
+        authorization: `Bearer ${getKey() ?? ""}`,
+        ...(body !== undefined ? { "content-type": "application/json" } : {}),
+        ...extra,
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new ApiError(0, OFFLINE);
+  }
   if (!res.ok) {
+    if (res.status >= 500) {
+      throw new ApiError(
+        res.status,
+        "서버 오류로 저장되지 않았습니다. 잠시 뒤 다시 시도해 주세요.",
+      );
+    }
     const p = (await res.json().catch(() => null)) as { title?: string; detail?: string } | null;
     throw new ApiError(res.status, p?.detail ?? p?.title ?? `오류 ${res.status}`);
   }
