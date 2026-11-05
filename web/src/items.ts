@@ -124,6 +124,9 @@ function changeText(c: Change): string {
   if (c.action === "status" && typeof d.to === "string") {
     return `${base}: ${STATUS[d.to as Status] ?? d.to}`;
   }
+  if (c.action === "update" && typeof d.title === "string" && Object.keys(d).length === 1) {
+    return "이름 바꿈";
+  }
   if (c.action === "block" && typeof d.reason === "string") {
     return `${base}: ${BLOCKED[d.reason as keyof typeof BLOCKED] ?? d.reason}`;
   }

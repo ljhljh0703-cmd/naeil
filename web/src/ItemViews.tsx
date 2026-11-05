@@ -255,6 +255,7 @@ export function DetailPanel({
   onAction,
   onExpand,
   full,
+  loading = false,
 }: {
   detail: DetailModel | null;
   position: { index: number; total: number } | null;
@@ -264,6 +265,7 @@ export function DetailPanel({
   onAction: ActFn;
   onExpand: (ref: ItemRef) => void;
   full: boolean;
+  loading?: boolean; // 첫 불러오기 전: 「찾을 수 없습니다」 대신 「불러오는 중」
 }) {
   const head = useRef<HTMLHeadingElement>(null);
   const key = detail ? refKey(detail.ref) : "";
@@ -353,6 +355,12 @@ export function DetailPanel({
               itemRef={detail.ref}
             />
           ))}
+        </div>
+      ) : loading ? (
+        <div className="detail-body">
+          <h2 id="detail-title" ref={head} tabIndex={-1} aria-busy="true">
+            불러오는 중입니다
+          </h2>
         </div>
       ) : (
         <div className="detail-body">

@@ -135,6 +135,17 @@ describe("할 일 카드·상세", () => {
 });
 
 describe("한 일 카드·상세", () => {
+  it("이름만 바꾼 기록은 「고침」 대신 「이름 바꿈」", () => {
+    const c = cardOf(
+      ctx({
+        tasks: [task({ title: "새 이름" })],
+        changes: [change({ action: "update", details: { title: "새 이름" } })],
+      }),
+      { type: "change", id: "7" },
+    );
+    expect(c?.title).toBe("「새 이름」 이름 바꿈");
+  });
+
   it("누가·언제·무엇을, 대상 할 일 카드가 상세 안에 들어간다", () => {
     const c = cardOf(ctx(), { type: "change", id: "7" });
     expect(c?.title).toBe("「할 일 API 만들기」 상태 바꿈: 끝");

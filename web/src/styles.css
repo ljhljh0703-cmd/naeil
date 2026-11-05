@@ -902,3 +902,15 @@ div.error {
   justify-content: space-between;
   gap: var(--s2) var(--s3);
 }
+
+/* 폰: 상세가 화면을 덮어도 오류 줄과 다시 시도가 보이게 아래에 띄운다 */
+@media (max-width: 760px) {
+  div.error {
+    position: fixed;
+    left: var(--s4);
+    right: var(--s4);
+    bottom: var(--s4);
+    z-index: 20;
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.16);
+  }
+}

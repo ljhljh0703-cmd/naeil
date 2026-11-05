@@ -100,14 +100,16 @@ async function call<T>(
   return (res.status === 204 ? null : await res.json()) as T;
 }
 
-// 만들기는 누를 때마다 새 열쇠를 붙인다. 두 번 눌려도 하나만 생긴다.
-const once = () => ({ "idempotency-key": crypto.randomUUID() });
+// 만들기에는 재시도 열쇠를 붙인다. 화면이 열쇠를 넘기면(같은 입력의 다시 시도) 그 열쇠를 다시 쓴다.
+// 응답만 못 받고 서버에는 저장된 경우에도 다시 시도가 두 번째 것을 만들지 않는다.
+const once = (key?: string) => ({ "idempotency-key": key ?? crypto.randomUUID() });
 
 type Page<T> = { items: T[]; nextCursor: string | null };
 
 export const api = {
   projects: () => call<{ items: Project[] }>("GET", "/v1/projects").then((r) => r.items),
-  createProject: (name: string) => call<Project>("POST", "/v1/projects", { name }, once()),
+  createProject: (name: string, key?: string) =>
+    call<Project>("POST", "/v1/projects", { name }, once(key)),
   async allTasks(): Promise<ApiTask[]> {
     const out: ApiTask[] = [];
     let cursor: string | null = null;
@@ -121,6 +123,11 @@ export const api = {
   },
   createTask: (input: { projectId: string; title: string; dueAt?: string; milestoneId?: string }) =>
     call<ApiTask>("POST", "/v1/tasks", input, once()),
+  // 같은 입력을 다시 보낼 때 같은 열쇠를 쓰는 판
+  createTaskOnce: (
+    input: { projectId: string; title: string; dueAt?: string; milestoneId?: string },
+    key: string,
+  ) => call<ApiTask>("POST", "/v1/tasks", input, once(key)),
   setStatus: (id: string, status: Status) => call<ApiTask>("PATCH", `/v1/tasks/${id}`, { status }),
   rename: (id: string, title: string) => call<ApiTask>("PATCH", `/v1/tasks/${id}`, { title }),
   block: (id: string, reason: BlockedReason) =>

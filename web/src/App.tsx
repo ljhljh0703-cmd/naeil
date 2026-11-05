@@ -345,6 +345,7 @@ export function App() {
         window.history.replaceState(window.history.state, "", urlFor(ref, true));
       }}
       full={open.full}
+      loading={!loaded}
     />
   );
 
@@ -648,18 +649,30 @@ function AddTask({
   const [due, setDue] = useState("");
   const [busy, setBusy] = useState(false);
   const chosen = projectId || projects[0]?.id || "";
+  // 입력 하나에 열쇠 하나. 실패 뒤 「넣기」를 다시 누르면 같은 열쇠로 보낸다 (중복 프로젝트·할 일 막기)
+  const keys = useRef<{ project?: string; task?: string; input?: string }>({});
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
+    const input = JSON.stringify([chosen, newProject.trim(), title.trim(), due]);
+    if (keys.current.input !== input) keys.current = { input };
+    keys.current.project ??= crypto.randomUUID();
+    keys.current.task ??= crypto.randomUUID();
     try {
       let pid = chosen;
-      if (!pid || pid === "__new") pid = (await api.createProject(newProject.trim() || "기본")).id;
-      await api.createTask({
-        projectId: pid,
-        title: title.trim(),
-        dueAt: due ? dueFromKstDate(due) : undefined,
-      });
+      if (!pid || pid === "__new") {
+        pid = (await api.createProject(newProject.trim() || "기본", keys.current.project)).id;
+      }
+      await api.createTaskOnce(
+        {
+          projectId: pid,
+          title: title.trim(),
+          dueAt: due ? dueFromKstDate(due) : undefined,
+        },
+        keys.current.task,
+      );
+      keys.current = {};
       setTitle("");
       setDue("");
       setNewProject("");
