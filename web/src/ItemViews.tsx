@@ -1,5 +1,5 @@
 // 카드와 상세 칸을 그리는 공통 부품. 종류별 화면은 만들지 않고 items.ts 의 모양만 받는다.
-import { type MouseEvent, useEffect, useId, useRef } from "react";
+import { type MouseEvent, useEffect, useId, useRef, useState } from "react";
 import {
   type Action,
   type CardModel,
@@ -105,10 +105,61 @@ export function CardList({
 }
 
 // 고르기·날짜 칸. 이름표를 같이 보여 준다 (화면낭독기도 같은 이름을 읽음)
+// 글 칸. 빈 이름과 바뀌지 않은 이름은 저장 버튼을 끈다. 바깥 값이 바뀌면(저장 뒤 새로 불러옴) 칸도 새 값으로
+function TextControl({
+  id,
+  label,
+  value,
+  maxLength,
+  onSave,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  maxLength: number;
+  onSave: (v: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const next = draft.trim();
+  const can = next.length > 0 && next !== value;
+  return (
+    <form
+      className="control text-control"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (can) onSave(next);
+      }}
+    >
+      <label htmlFor={id}>{label}</label>
+      <input
+        id={id}
+        value={draft}
+        maxLength={maxLength}
+        onChange={(e) => setDraft(e.target.value)}
+      />
+      <button type="submit" className="small" disabled={!can}>
+        저장
+      </button>
+    </form>
+  );
+}
+
 function ControlView({ action, onChange }: { action: Action; onChange: (v: string) => void }) {
   const id = useId();
   const c = action.control;
   if (!c) return null;
+  if (c.kind === "text") {
+    return (
+      <TextControl
+        id={id}
+        label={action.label}
+        value={c.value}
+        maxLength={c.maxLength}
+        onSave={onChange}
+      />
+    );
+  }
   return (
     <div className="control">
       <label htmlFor={id}>{action.label}</label>

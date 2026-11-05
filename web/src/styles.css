@@ -881,3 +881,15 @@ button.danger {
 .control input[type="date"] {
   min-height: 40px;
 }
+
+/* 이름 바꾸기 글 칸: 상세 폭을 다 쓴다 */
+.text-control {
+  display: flex;
+  width: 100%;
+}
+
+.text-control input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px;
+}

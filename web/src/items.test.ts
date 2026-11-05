@@ -122,6 +122,13 @@ describe("할 일 카드·상세", () => {
     expect(ids(doing).find((a) => a.id === "done")?.tone).toBe("primary");
   });
 
+  it("상세에 이름 바꾸기 칸: 지금 이름이 들어 있고 200자까지", () => {
+    const d = detailOf(ctx(), { type: "task", id: task().id });
+    const s = d?.sections.find((x) => x.id === "rename");
+    const a = s && "actions" in s ? s.actions[0] : undefined;
+    expect(a?.control).toEqual({ kind: "text", value: "할 일 API 만들기", maxLength: 200 });
+  });
+
   it("없는 항목은 null", () => {
     expect(detailOf(ctx(), { type: "task", id: "없음" })).toBeNull();
   });

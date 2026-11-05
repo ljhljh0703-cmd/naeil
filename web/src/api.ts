@@ -107,6 +107,7 @@ export const api = {
   createTask: (input: { projectId: string; title: string; dueAt?: string; milestoneId?: string }) =>
     call<ApiTask>("POST", "/v1/tasks", input, once()),
   setStatus: (id: string, status: Status) => call<ApiTask>("PATCH", `/v1/tasks/${id}`, { status }),
+  rename: (id: string, title: string) => call<ApiTask>("PATCH", `/v1/tasks/${id}`, { title }),
   block: (id: string, reason: BlockedReason) =>
     call<ApiTask>("PUT", `/v1/tasks/${id}/block`, { reason }),
   unblock: (id: string) => call<ApiTask>("DELETE", `/v1/tasks/${id}/block`),

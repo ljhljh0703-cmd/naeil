@@ -1017,3 +1017,26 @@ describe("날짜 표현의 연도 경계", () => {
     }
   });
 });
+
+describe("S1 작업 이름", () => {
+  it("이름을 바꾸면 다시 불러와도 바뀐 이름, 빈칸만 있거나 200자 넘는 이름은 400", async () => {
+    const projectId = await newProject();
+    const id = await newTask(projectId);
+    const ok = await call("PATCH", "/v1/tasks/{taskId}", {
+      url: `/v1/tasks/${id}`,
+      body: { title: "바뀐 이름" },
+    });
+    expect(ok.statusCode).toBe(200);
+    const again = await call("GET", "/v1/tasks/{taskId}", { url: `/v1/tasks/${id}` });
+    expect(again.json().title).toBe("바뀐 이름");
+    for (const title of ["   ", "가".repeat(201)]) {
+      const bad = await call("PATCH", "/v1/tasks/{taskId}", {
+        url: `/v1/tasks/${id}`,
+        body: { title },
+      });
+      expect(bad.statusCode).toBe(400);
+    }
+    const bad = await call("POST", "/v1/tasks", { body: { projectId, title: " " } });
+    expect(bad.statusCode).toBe(400);
+  });
+});
