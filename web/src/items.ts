@@ -15,7 +15,9 @@ export type Chip = { label: string; tone?: Tone };
 // 버튼 하나, 또는 고르기(select)·날짜 칸. 고르기·날짜는 값이 바뀌면 바로 onAction(값)
 export type Control =
   | { kind: "select"; value: string; choices: { value: string; label: string }[] }
-  | { kind: "date"; value: string };
+  | { kind: "date"; value: string }
+  // 글 칸: 값이 바뀌어도 바로 저장하지 않고 「저장」을 눌러야 onAction(값)
+  | { kind: "text"; value: string; maxLength: number };
 export type Action = {
   id: string;
   label: string;
@@ -122,6 +124,9 @@ function changeText(c: Change): string {
   if (c.action === "status" && typeof d.to === "string") {
     return `${base}: ${STATUS[d.to as Status] ?? d.to}`;
   }
+  if (c.action === "update" && typeof d.title === "string" && Object.keys(d).length === 1) {
+    return "이름 바꿈";
+  }
   if (c.action === "block" && typeof d.reason === "string") {
     return `${base}: ${BLOCKED[d.reason as keyof typeof BLOCKED] ?? d.reason}`;
   }
@@ -183,6 +188,17 @@ registerItemType<ApiTask>("task", {
       meta: projectName(ctx, t.projectId) ?? undefined,
       sections: [
         { id: "actions", kind: "actions", actions },
+        {
+          id: "rename",
+          kind: "actions",
+          actions: [
+            {
+              id: "rename",
+              label: "이름",
+              control: { kind: "text", value: t.title, maxLength: 200 },
+            },
+          ],
+        },
         {
           id: "fields",
           kind: "fields",

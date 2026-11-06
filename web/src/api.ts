@@ -63,36 +63,53 @@ export class ApiError extends Error {
   }
 }
 
+// 서버에 닿지 못했을 때(꺼짐, 주소 틀림, 연결 끊김) 브라우저는 영어 「Failed to fetch」만 준다. 우리 말로 바꾼다
+export const OFFLINE =
+  "서버에 연결되지 않습니다. 맥에서 서버가 켜져 있는지 확인한 뒤 다시 시도해 주세요.";
+
 async function call<T>(
   method: string,
   url: string,
   body?: unknown,
   extra: Record<string, string> = {},
 ) {
-  const res = await fetch(url, {
-    method,
-    headers: {
-      authorization: `Bearer ${getKey() ?? ""}`,
-      ...(body !== undefined ? { "content-type": "application/json" } : {}),
-      ...extra,
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: {
+        authorization: `Bearer ${getKey() ?? ""}`,
+        ...(body !== undefined ? { "content-type": "application/json" } : {}),
+        ...extra,
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new ApiError(0, OFFLINE);
+  }
   if (!res.ok) {
+    if (res.status >= 500) {
+      throw new ApiError(
+        res.status,
+        "서버 오류로 저장되지 않았습니다. 잠시 뒤 다시 시도해 주세요.",
+      );
+    }
     const p = (await res.json().catch(() => null)) as { title?: string; detail?: string } | null;
     throw new ApiError(res.status, p?.detail ?? p?.title ?? `오류 ${res.status}`);
   }
   return (res.status === 204 ? null : await res.json()) as T;
 }
 
-// 만들기는 누를 때마다 새 열쇠를 붙인다. 두 번 눌려도 하나만 생긴다.
-const once = () => ({ "idempotency-key": crypto.randomUUID() });
+// 만들기에는 재시도 열쇠를 붙인다. 화면이 열쇠를 넘기면(같은 입력의 다시 시도) 그 열쇠를 다시 쓴다.
+// 응답만 못 받고 서버에는 저장된 경우에도 다시 시도가 두 번째 것을 만들지 않는다.
+const once = (key?: string) => ({ "idempotency-key": key ?? crypto.randomUUID() });
 
 type Page<T> = { items: T[]; nextCursor: string | null };
 
 export const api = {
   projects: () => call<{ items: Project[] }>("GET", "/v1/projects").then((r) => r.items),
-  createProject: (name: string) => call<Project>("POST", "/v1/projects", { name }, once()),
+  createProject: (name: string, key?: string) =>
+    call<Project>("POST", "/v1/projects", { name }, once(key)),
   async allTasks(): Promise<ApiTask[]> {
     const out: ApiTask[] = [];
     let cursor: string | null = null;
@@ -106,7 +123,13 @@ export const api = {
   },
   createTask: (input: { projectId: string; title: string; dueAt?: string; milestoneId?: string }) =>
     call<ApiTask>("POST", "/v1/tasks", input, once()),
+  // 같은 입력을 다시 보낼 때 같은 열쇠를 쓰는 판
+  createTaskOnce: (
+    input: { projectId: string; title: string; dueAt?: string; milestoneId?: string },
+    key: string,
+  ) => call<ApiTask>("POST", "/v1/tasks", input, once(key)),
   setStatus: (id: string, status: Status) => call<ApiTask>("PATCH", `/v1/tasks/${id}`, { status }),
+  rename: (id: string, title: string) => call<ApiTask>("PATCH", `/v1/tasks/${id}`, { title }),
   block: (id: string, reason: BlockedReason) =>
     call<ApiTask>("PUT", `/v1/tasks/${id}/block`, { reason }),
   unblock: (id: string) => call<ApiTask>("DELETE", `/v1/tasks/${id}/block`),

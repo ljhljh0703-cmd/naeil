@@ -325,6 +325,28 @@ export class Store {
     }
     const id = randomUUID();
     const t = this.now();
+    // 할 일과 「누가 만들었나」 기록은 한 묶음. 기록이 실패하면 할 일도 남기지 않는다 (S1, 2026-11-05)
+    this.db.transaction(() => {
+      this.insertTask(id, t, input);
+      this.log(who, "task", id, "create", { title: input.title, source: input.source ?? "direct" });
+    })();
+    return id;
+  }
+
+  private insertTask(
+    id: string,
+    t: string,
+    input: {
+      projectId: string;
+      title: string;
+      milestoneId?: string;
+      dueAt?: string;
+      source?: string;
+      sourceRef?: string;
+      externalText?: boolean;
+      body?: string;
+    },
+  ) {
     try {
       this.db
         .prepare(
@@ -351,8 +373,6 @@ export class Store {
       }
       throw err;
     }
-    this.log(who, "task", id, "create", { title: input.title, source: input.source ?? "direct" });
-    return id;
   }
 
   getTask(id: string, opts: { includeTrashed?: boolean } = {}): Task | undefined {

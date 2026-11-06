@@ -119,6 +119,9 @@ export function App() {
     load<string | null>("naeil.project", null),
   );
   const [error, setError] = useState<string>();
+  // 첫 불러오기가 끝나기 전에는 빈 화면(「할 일이 없습니다」)을 보이지 않는다
+  const [loaded, setLoaded] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [mode, setModeState] = useState<Mode>(() => load<Mode>("naeil.mode", "board"));
   const [open, setOpen] = useState(readUrl);
@@ -148,6 +151,7 @@ export function App() {
       setTasks(t);
       setChanges(c);
       setError(undefined);
+      setLoaded(true);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setKey(null);
@@ -258,6 +262,7 @@ export function App() {
     const id = ref.id;
     const byId: Record<string, () => Promise<unknown>> = {
       "move-milestone": () => api.setMilestone(id, value ? value : null),
+      rename: () => api.rename(id, value ?? ""),
       start: () => api.setStatus(id, "doing"),
       done: () => api.setStatus(id, "done"),
       reopen: () => api.revive(id),
@@ -340,6 +345,7 @@ export function App() {
         window.history.replaceState(window.history.state, "", urlFor(ref, true));
       }}
       full={open.full}
+      loading={!loaded}
     />
   );
 
@@ -486,12 +492,30 @@ export function App() {
       <main className="shell">
         {header}
         {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
+          <div className="error" role="alert">
+            <span>{error}</span>
+            <button
+              type="button"
+              className="small"
+              disabled={retrying}
+              onClick={async () => {
+                setRetrying(true);
+                await reload();
+                setRetrying(false);
+              }}
+            >
+              {retrying ? "다시 불러오는 중" : "다시 시도"}
+            </button>
+          </div>
         )}
 
-        {page === "milestones" ? (
+        {!loaded ? (
+          <section className="card">
+            <p className="muted" role="status">
+              {error ? "아직 불러오지 못했습니다." : "불러오는 중입니다."}
+            </p>
+          </section>
+        ) : page === "milestones" ? (
           <Board
             ctx={ctx}
             projectId={boardProject}
@@ -625,18 +649,30 @@ function AddTask({
   const [due, setDue] = useState("");
   const [busy, setBusy] = useState(false);
   const chosen = projectId || projects[0]?.id || "";
+  // 입력 하나에 열쇠 하나. 실패 뒤 「넣기」를 다시 누르면 같은 열쇠로 보낸다 (중복 프로젝트·할 일 막기)
+  const keys = useRef<{ project?: string; task?: string; input?: string }>({});
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
+    const input = JSON.stringify([chosen, newProject.trim(), title.trim(), due]);
+    if (keys.current.input !== input) keys.current = { input };
+    keys.current.project ??= crypto.randomUUID();
+    keys.current.task ??= crypto.randomUUID();
     try {
       let pid = chosen;
-      if (!pid || pid === "__new") pid = (await api.createProject(newProject.trim() || "기본")).id;
-      await api.createTask({
-        projectId: pid,
-        title: title.trim(),
-        dueAt: due ? dueFromKstDate(due) : undefined,
-      });
+      if (!pid || pid === "__new") {
+        pid = (await api.createProject(newProject.trim() || "기본", keys.current.project)).id;
+      }
+      await api.createTaskOnce(
+        {
+          projectId: pid,
+          title: title.trim(),
+          dueAt: due ? dueFromKstDate(due) : undefined,
+        },
+        keys.current.task,
+      );
+      keys.current = {};
       setTitle("");
       setDue("");
       setNewProject("");
