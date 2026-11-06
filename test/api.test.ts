@@ -73,7 +73,7 @@ describe("명세서와 코드", () => {
 describe("출입증", () => {
   it("상태 확인은 출입증 없이 열린다", async () => {
     const res = await call("GET", "/health", { key: "" });
-    expect(res.json()).toEqual({ ok: true });
+    expect(res.json()).toMatchObject({ ok: true, checks: { db: "ok" } });
   });
 
   it("출입증이 없거나 틀리면 401, 오류 모양은 하나", async () => {

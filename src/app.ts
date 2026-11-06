@@ -25,6 +25,7 @@ import {
   type TaskPatch,
 } from "./db/store.js";
 import { AppError, ERROR_DOCS, NotFound, Unauthorized, VersionMismatch } from "./errors.js";
+import { dbChecker, type WebState } from "./health.js";
 import { IdempotencyStore, requestHash } from "./idempotency.js";
 import { routeSchema, specSchemaBundle, toFastifyPath } from "./spec.js";
 
@@ -44,6 +45,8 @@ declare module "fastify" {
 export type AppOptions = {
   logger?: boolean;
   db?: Database.Database;
+  // 자료 파일 자리. 주면 상태 확인이 「같은 파일이 그 자리에 있는지」까지 본다
+  dbPath?: string;
   // 화면(web/dist)이 있으면 첫 주소에서 화면을 연다
   webDir?: string;
   clock?: () => Date;
@@ -146,6 +149,12 @@ function makeAjv(coerce: boolean) {
 export function buildApp(options: AppOptions = {}): FastifyInstance {
   const db = options.db ?? openDb(":memory:");
   const clock = options.clock ?? (() => new Date());
+  const checkDb = dbChecker(db, options.dbPath);
+  const web: WebState = !options.webDir
+    ? "off"
+    : existsSync(`${options.webDir}/index.html`)
+      ? "ok"
+      : "missing";
   const idem = new IdempotencyStore(db, clock);
   const stores = new Map<string, Store>();
   const storeFor = (req: FastifyRequest) => {
@@ -257,7 +266,13 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
   }
 
   // ── 상태 확인 (로그인 없이) ──
-  route("GET", "/health", async () => ({ ok: true }));
+  // 자료가 안 읽히면 503. 자동 재시작과 알림이 이 답만 본다. 화면 파일 유무는 알려만 준다.
+  route("GET", "/health", async (_req, reply) => {
+    const dbState = checkDb();
+    const ok = dbState === "ok";
+    if (!ok) reply.code(503);
+    return { ok, checks: { db: dbState, web } };
+  });
 
   // ── 프로젝트 ──
   route("GET", "/v1/projects", async (req) => {
@@ -463,8 +478,18 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
   });
 
   // ── 화면 ──
-  if (options.webDir && existsSync(`${options.webDir}/index.html`)) {
+  if (options.webDir && web === "ok") {
     app.register(fastifyStatic, { root: options.webDir, prefix: "/" });
+  } else if (web === "missing") {
+    // 화면을 굽지 않고 켰을 때, 첫 주소에서 이유를 바로 보이게 한다 (예전엔 말없이 JSON 만 나왔다)
+    app.get("/", async (_req, reply) =>
+      reply
+        .code(503)
+        .type("text/html; charset=utf-8")
+        .send(
+          `<!doctype html><meta charset="utf-8"><title>naeil</title><p>화면 파일이 없습니다. 저장소에서 <code>npm run build</code> 를 한 뒤 다시 켜 주세요.</p>`,
+        ),
+    );
   } else {
     app.get("/", async () => ({ name: "naeil", tagline: TAGLINE }));
   }

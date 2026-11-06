@@ -14,14 +14,16 @@
 ```bash
 cd naeil
 npm ci
-cp .env.example .env          # 데이터베이스 위치 등. 아이클라우드 동기화 폴더 밖으로
+cp .env.example .env          # 포트 등. 자료 파일 자리는 비워 두면 저장소 밖 앱 자료 폴더
 npm run key -- new author     # 화면용 출입증. 한 번만 보이니 바로 복사
 ```
 
 ## 켜기
 ```bash
-npm start                     # 화면을 굽고 서버를 켠다 → http://127.0.0.1:3700
+npm start                     # 서버와 화면을 굽고, 구운 판으로 켠다 → http://127.0.0.1:3700
 ```
+어느 폴더에서 켜도 같은 설정(저장소의 `.env`)과 같은 자료 파일을 쓴다. 켤 때 자료 파일 자리를 기록에 찍는다. 자세한 것은 `docs/ops/running.md`.
+
 처음 열면 출입증 칸이 나온다. 위에서 복사한 `nk_…` 를 붙여 넣는다.
 
 ## 출입증 (도구마다 1장)
@@ -40,7 +42,7 @@ npm start                     # 화면을 굽고 서버를 켠다 → http://127
 ## API 한눈에
 | 주소 | 하는 일 |
 |---|---|
-| `GET /health` | 살아 있나 (출입증 없이) |
+| `GET /health` | 살아 있고 자료가 읽히나 (출입증 없이). 켜진 채 자료 파일이 지워지거나 바뀌면 503 |
 | `GET·POST /v1/projects` · `GET·PATCH·DELETE /v1/projects/{id}` | 프로젝트 목록·만들기·보기·이름 변경·휴지통 |
 | `GET·POST /v1/projects/{id}/milestones` | 마일스톤 목록(마감 빠른 순, 마감 없음 뒤)·만들기 |
 | `PATCH·DELETE /v1/milestones/{id}` | 마일스톤 이름·마감 변경·휴지통 |
@@ -58,7 +60,8 @@ npm start                     # 화면을 굽고 서버를 켠다 → http://127
 ```bash
 npm run dev          # 서버 (코드 바꾸면 다시 켜짐)
 npm run dev:web      # 화면 (http://127.0.0.1:5173, API는 3700으로 넘김)
-npm run check        # 코드 검사 + 타입 검사 + 시험 + 화면 굽기
+npm run check        # 코드 검사 + 타입 검사 + 시험 + 구운 서버 연기 시험
+npm run smoke        # 굽고, 저장소 밖 빈 폴더에서 구운 서버를 켜 6가지 확인
 npm run lint:api     # 명세서 검사
 ```
 - 서버 입력 검사는 명세서에서 그대로 읽는다. 규칙을 코드에 두 번 적지 않는다
