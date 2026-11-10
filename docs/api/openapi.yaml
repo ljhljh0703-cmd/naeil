@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: naeil API
-  version: 0.1.0
+  version: 0.0.4
   summary: 내 일은 naeil에서
   description: |
     내일은내일(naeil) 할 일 API 명세서 v1 (작가 결정 4곳 반영 2026-10-25, 코드는 1-2단계).
@@ -592,9 +592,10 @@ components:
     Health:
       type: object
       additionalProperties: false
-      required: [ok, checks]
+      required: [ok, version, checks]
       properties:
         ok: { type: boolean }
+        version: { type: string, description: 켜져 있는 판 (package.json 의 version) }
         checks:
           type: object
           additionalProperties: false
