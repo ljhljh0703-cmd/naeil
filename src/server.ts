@@ -1,10 +1,12 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { buildApp } from "./app.js";
+import { backupDirFor } from "./backup-files.js";
 import { loadConfig } from "./config.js";
 import { openDb } from "./db/connection.js";
 import { type DbState, RESTART_EXIT_CODE, selfCheckAction } from "./health.js";
 import { loadEnv, WEB_DIR } from "./paths.js";
+import { ledgerPathFor, syncRevocations } from "./revocations.js";
 import { checkNode } from "./runtime.js";
 
 // 알려진 보안 구멍이 있는 Node 로는 켜지 않는다. 급할 때만 NAEIL_ALLOW_OLD_NODE=1 로 넘긴다.
@@ -19,6 +21,10 @@ loadEnv();
 const config = loadConfig();
 let checkDb: (() => DbState) | null = null;
 const db = openDb(config.dbPath);
+// 폐기 명부를 켤 때마다 다시 적용한다 (백업에서 되살린 자료라도 폐기한 출입증은 막힌 채로)
+const revocations =
+  config.dbPath === ":memory:" ? null : syncRevocations(db, ledgerPathFor(config.dbPath));
+const backupDir = config.dbPath === ":memory:" ? undefined : backupDirFor(config.dbPath);
 const app = buildApp({
   onDbChecker: (c) => {
     checkDb = c;
@@ -26,11 +32,15 @@ const app = buildApp({
   logger: true,
   db,
   dbPath: config.dbPath,
+  backupDir,
   webDir: WEB_DIR,
 });
 
 app.log.info({ db: config.dbPath }, "자료 파일");
 for (const note of config.notes) app.log.warn(note);
+if (revocations && revocations.reapplied.length > 0) {
+  app.log.warn({ names: revocations.reapplied }, "폐기 명부에 있는데 살아 있던 출입증을 다시 막음");
+}
 if (!existsSync(join(WEB_DIR, "index.html"))) {
   app.log.warn(`화면 파일이 없음 (${WEB_DIR}). npm run build 를 먼저 하세요. API 는 그대로 열림`);
 }

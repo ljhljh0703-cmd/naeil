@@ -8,12 +8,15 @@ import { createKey, listKeys, revokeKey } from "../auth.js";
 import { loadConfig } from "../config.js";
 import { openDb } from "../db/connection.js";
 import { loadEnv } from "../paths.js";
+import { addToLedger, ledgerPathFor, syncRevocations } from "../revocations.js";
 
 const [cmd, name] = process.argv.slice(2);
 loadEnv();
 const config = loadConfig();
 console.error(`자료 파일: ${config.dbPath}`);
 const db = openDb(config.dbPath);
+const ledger = ledgerPathFor(config.dbPath);
+syncRevocations(db, ledger);
 
 function usage(): never {
   console.error("쓰는 법: npm run key -- new <이름> | revoke <이름> | list");
@@ -31,11 +34,14 @@ try {
       "저장소(깃허브)에는 절대 올리지 마세요. 잃어버리면 revoke 후 새로 만들면 됩니다.\n",
     );
   } else if (cmd === "revoke" && name) {
-    console.log(
-      revokeKey(db, name)
-        ? `「${name}」 출입증을 폐기했습니다.`
-        : `살아 있는 「${name}」 출입증이 없습니다.`,
-    );
+    const revoked = revokeKey(db, name);
+    if (revoked) {
+      // 자료 파일 밖 명부에도 적어, 백업에서 되살려도 다시 통하지 않게 한다
+      addToLedger(ledger, [revoked]);
+      console.log(`「${name}」 출입증을 폐기했습니다. 폐기 명부: ${ledger}`);
+    } else {
+      console.log(`살아 있는 「${name}」 출입증이 없습니다.`);
+    }
   } else if (cmd === "list") {
     for (const k of listKeys(db)) {
       console.log(

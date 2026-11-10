@@ -22,7 +22,7 @@ npm run key -- new author     # 화면용 출입증. 한 번만 보이니 바로
 ```bash
 npm start                     # 서버와 화면을 굽고, 구운 판으로 켠다 → http://127.0.0.1:3700
 ```
-맥에서 늘 켜 두려면 `npm run deploy:mac` (로그인하면 켜지고, 죽으면 다시 켜짐). 어느 폴더에서 켜도 같은 설정(저장소의 `.env`)과 같은 자료 파일을 쓴다. 켤 때 자료 파일 자리를 기록에 찍는다. 자세한 것은 `docs/ops/running.md`.
+맥에서 늘 켜 두려면 `npm run deploy:mac` (로그인하면 켜지고, 죽으면 다시 켜지고, 매일 백업과 복원 연습). 어느 폴더에서 켜도 같은 설정(저장소의 `.env`)과 같은 자료 파일을 쓴다. 켤 때 자료 파일 자리를 기록에 찍는다. 자세한 것은 `docs/ops/running.md`.
 
 처음 열면 출입증 칸이 나온다. 위에서 복사한 `nk_…` 를 붙여 넣는다.
 
@@ -32,7 +32,7 @@ npm start                     # 서버와 화면을 굽고, 구운 판으로 켠
 | `npm run key -- new author` | 화면용 |
 | `npm run key -- new claude` | Claude 세션용 |
 | `npm run key -- new codex` | Codex 세션용 |
-| `npm run key -- revoke <이름>` | 폐기 (잃어버렸거나 바꿀 때) |
+| `npm run key -- revoke <이름>` | 폐기 (잃어버렸거나 바꿀 때). 자료 파일 밖 폐기 명부에도 적혀, 백업에서 되살려도 막힌 채로 |
 | `npm run key -- list` | 목록 (키 원문은 다시 못 봄) |
 
 - 서버에는 키 원문 대신 잠근 값(해시)만 남는다
@@ -42,7 +42,7 @@ npm start                     # 서버와 화면을 굽고, 구운 판으로 켠
 ## API 한눈에
 | 주소 | 하는 일 |
 |---|---|
-| `GET /health` | 살아 있고 자료가 읽히나 (출입증 없이). 켜진 채 자료 파일이 지워지거나 바뀌면 503 |
+| `GET /health` | 살아 있고 자료가 읽히나 (출입증 없이). 켜진 채 자료 파일이 지워지거나 바뀌면 503. 최근 백업과 복원 연습 결과도 알려 줌 |
 | `GET·POST /v1/projects` · `GET·PATCH·DELETE /v1/projects/{id}` | 프로젝트 목록·만들기·보기·이름 변경·휴지통 |
 | `GET·POST /v1/projects/{id}/milestones` | 마일스톤 목록(마감 빠른 순, 마감 없음 뒤)·만들기 |
 | `PATCH·DELETE /v1/milestones/{id}` | 마일스톤 이름·마감 변경·휴지통 |

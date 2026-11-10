@@ -11,7 +11,8 @@
 #   4) 판 시험       새 판을 빈 폴더, 빈 자료로 켜 연기 시험 (실제 자료는 건드리지 않음)
 #   5) 첫 자료       자료 파일이 아직 없고 저장소에 예전 자료(data/naeil.db)가 있으면 「복사」 (원본은 그대로)
 #   6) 바꿔 끼우기   current 를 새 판으로
-#   7) 자동 실행     ~/Library/LaunchAgents/com.naeil.server.plist 를 쓰고 다시 켬
+#   5-1) 배포 전 백업 자료 파일이 있으면 새 판의 백업 명령으로 백업과 복원 연습. 실패하면 바꿔 끼우지 않음
+#   7) 자동 실행     서버(com.naeil.server)와 매일 백업(com.naeil.backup, 새벽 4시 17분, 잠자고 있었으면 깨어날 때)
 #   8) 확인          상태 확인이 200 이 될 때까지 기다림. 안 되면 이전 판으로 되돌리고 실패로 끝남
 #
 # 바꿀 수 있는 값 (환경 변수)
@@ -30,6 +31,8 @@ AGENTS_DIR="${NAEIL_LAUNCH_AGENTS:-$HOME/Library/LaunchAgents}"
 LOG_DIR="${NAEIL_LOG_DIR:-$HOME/Library/Logs/naeil}"
 LABEL="com.naeil.server"
 PLIST="$AGENTS_DIR/$LABEL.plist"
+BACKUP_LABEL="com.naeil.backup"
+BACKUP_PLIST="$AGENTS_DIR/$BACKUP_LABEL.plist"
 PORT="${NAEIL_PORT:-3700}"
 DB="$APP_HOME/naeil.db"
 IS_MAC=0; [ "$(uname -s)" = "Darwin" ] && IS_MAC=1
@@ -98,6 +101,14 @@ else
   echo "자료 파일 없음. 처음 켤 때 새로 만듦: $DB"
 fi
 
+say "5-1) 배포 전 백업"
+if [ -e "$DB" ]; then
+  NAEIL_DB="$DB" NAEIL_HOST=127.0.0.1 NAEIL_PORT="$PORT" "$NODE" "$REL/dist/cli/backup.js" run \
+    || die "배포 전 백업 또는 복원 연습 실패. 바꿔 끼우지 않고 멈춤 (지금 켜진 판은 그대로)"
+else
+  echo "자료 파일이 아직 없어 건너뜀"
+fi
+
 say "6) 바꿔 끼우기"
 PREV=""
 [ -L "$APP_HOME/current" ] && PREV="$(readlink "$APP_HOME/current")"
@@ -137,19 +148,56 @@ cat > "$PLIST.tmp" <<EOF
 </plist>
 EOF
 mv "$PLIST.tmp" "$PLIST"
-if [ "$IS_MAC" = "1" ]; then
-  plutil -lint "$PLIST" >/dev/null || die "자동 실행 설정 파일 모양이 틀림: $PLIST"
-  DOMAIN="gui/$(id -u)"
-  launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
-  # 내린 직후에는 다시 올리기가 잠깐 실패할 수 있어 몇 번 더 해 본다. 올리면 RunAtLoad 로 바로 켜진다
-  booted=0
+
+# 매일 백업: 새벽 4시 17분. 그 시각에 잠자고 있었으면 깨어날 때 한 번 돈다 (꺼져 있었으면 다음 날)
+cat > "$BACKUP_PLIST.tmp" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$BACKUP_LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$(esc "$NODE")</string>
+    <string>$(esc "$APP_HOME/current/dist/cli/backup.js")</string>
+    <string>run</string>
+  </array>
+  <key>WorkingDirectory</key><string>$(esc "$APP_HOME/current")</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NAEIL_HOST</key><string>127.0.0.1</string>
+    <key>NAEIL_PORT</key><string>$PORT</string>
+    <key>NAEIL_DB</key><string>$(esc "$DB")</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>4</integer>
+    <key>Minute</key><integer>17</integer>
+  </dict>
+  <key>StandardOutPath</key><string>$(esc "$LOG_DIR/backup.log")</string>
+  <key>StandardErrorPath</key><string>$(esc "$LOG_DIR/backup.err.log")</string>
+</dict>
+</plist>
+EOF
+mv "$BACKUP_PLIST.tmp" "$BACKUP_PLIST"
+
+# 내린 직후에는 다시 올리기가 잠깐 실패할 수 있어(맥 확인 11-10, 번호 5) 몇 번 더 해 본다
+load_agent() {
+  local label="$1" plist="$2"
+  plutil -lint "$plist" >/dev/null || die "자동 실행 설정 파일 모양이 틀림: $plist"
+  launchctl bootout "$DOMAIN/$label" 2>/dev/null || true
   for _ in 1 2 3 4 5; do
-    if launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then booted=1; break; fi
+    if launchctl bootstrap "$DOMAIN" "$plist" 2>/dev/null; then return 0; fi
     sleep 1
   done
-  [ "$booted" = "1" ] || launchctl bootstrap "$DOMAIN" "$PLIST" || die "자동 실행 등록 실패"
+  launchctl bootstrap "$DOMAIN" "$plist" || die "자동 실행 등록 실패: $label"
+}
+if [ "$IS_MAC" = "1" ]; then
+  DOMAIN="gui/$(id -u)"
+  load_agent "$LABEL" "$PLIST"          # RunAtLoad 로 바로 켜짐
+  load_agent "$BACKUP_LABEL" "$BACKUP_PLIST"
 else
-  echo "맥이 아니라 자동 실행 등록은 건너뜀 (설정 파일만 씀: $PLIST)"
+  echo "맥이 아니라 자동 실행 등록은 건너뜀 (설정 파일만 씀: $PLIST, $BACKUP_PLIST)"
 fi
 
 say "8) 확인"

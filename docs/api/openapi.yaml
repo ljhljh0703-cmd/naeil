@@ -45,6 +45,7 @@ paths:
         자료 파일을 실제로 읽어 보고, 켤 때 연 파일이 그 자리에 그대로 있는지까지 본다.
         켜진 채 파일이 지워졌거나(missing) 백업본으로 바뀌었으면(replaced) 503. 다시 켜면 새 파일을 연다.
         화면 파일(web) 유무는 알려만 주고 ok 에는 넣지 않는다 (AI 세션은 화면 없이도 쓴다).
+        백업(backup)도 알려만 준다: 최근 백업이 36시간 안이고 마지막 복원 연습이 통과면 ok.
       security: []
       responses:
         "200":
@@ -597,7 +598,7 @@ components:
         checks:
           type: object
           additionalProperties: false
-          required: [db, web]
+          required: [db, web, backup]
           properties:
             db:
               type: string
@@ -607,6 +608,10 @@ components:
               type: string
               enum: [ok, missing, "off"]
               description: ok = 화면 있음, missing = 화면을 굽지 않음, off = 화면 없이 켬(시험, AI 전용)
+            backup:
+              type: string
+              enum: [ok, stale, none, failed, "off"]
+              description: ok = 36시간 안 백업과 복원 연습 통과, stale = 오래됨, none = 백업 없음, failed = 마지막 복원 연습 실패, off = 백업 폴더 없이 켬(시험)
     Status:
       type: string
       enum: [todo, doing, done]

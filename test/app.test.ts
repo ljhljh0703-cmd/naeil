@@ -13,7 +13,7 @@ describe("기본 서버", () => {
   it("상태 확인 주소가 ok를 준다", async () => {
     const app = buildApp();
     const res = await app.inject({ method: "GET", url: "/health" });
-    expect(res.json()).toEqual({ ok: true, checks: { db: "ok", web: "off" } });
+    expect(res.json()).toEqual({ ok: true, checks: { db: "ok", web: "off", backup: "off" } });
   });
 });
 
