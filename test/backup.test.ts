@@ -190,6 +190,55 @@ describe("복원", () => {
   });
 });
 
+describe("되살리기 중간에 실패하면 원래 자료 그대로 (11-10 맥 확인 지적)", () => {
+  const count = (path: string) => {
+    const db = openDb(path);
+    const n = (db.prepare("SELECT count(*) AS n FROM tasks").get() as { n: number }).n;
+    db.close();
+    return n;
+  };
+  const leftovers = (dir: string) => readdirSync(dir).filter((f) => f.includes(".restoring"));
+
+  it("준비 단계에서 실패: 지금 자료는 손대지 않고, 임시 파일도 남지 않음", async () => {
+    const { db, dir, dbPath, store, projectId, backups, ledger } = setup();
+    const m = await makeBackup(db, backups, at("2026-11-10T04:00:00Z"));
+    store.createTask("test", { projectId, title: "백업 뒤 할 일" });
+    db.close();
+    await expect(
+      restore(join(backups, m.file), dbPath, ledger, at("2026-11-10T09:00:00Z"), (stage) => {
+        if (stage === "prepared") throw new Error("일부러 넣은 실패");
+      }),
+    ).rejects.toThrow("일부러 넣은 실패");
+    expect(count(dbPath)).toBe(2);
+    expect(leftovers(dir)).toEqual([]);
+    expect(existsSync(join(backups, "before-restore-20261110T090000Z"))).toBe(false);
+  });
+
+  it("바꿔 끼우기 단계에서 실패: 옮겨 둔 원래 자료를 제자리로 되돌림", async () => {
+    const { db, dir, dbPath, store, projectId, backups, ledger } = setup();
+    const m = await makeBackup(db, backups, at("2026-11-10T04:00:00Z"));
+    store.createTask("test", { projectId, title: "백업 뒤 할 일" });
+    db.close();
+    await expect(
+      restore(join(backups, m.file), dbPath, ledger, at("2026-11-10T09:00:00Z"), (stage) => {
+        if (stage === "moved") throw new Error("일부러 넣은 실패");
+      }),
+    ).rejects.toThrow("원래 자료로 되돌림");
+    expect(existsSync(dbPath)).toBe(true);
+    expect(count(dbPath)).toBe(2);
+    expect(leftovers(dir)).toEqual([]);
+  });
+
+  it("실패 없이 끝나면 임시 파일이 남지 않음", async () => {
+    const { db, dir, dbPath, backups, ledger } = setup();
+    const m = await makeBackup(db, backups, at("2026-11-10T04:00:00Z"));
+    db.close();
+    await restore(join(backups, m.file), dbPath, ledger);
+    expect(leftovers(dir)).toEqual([]);
+    expect(count(dbPath)).toBe(1);
+  });
+});
+
 describe("상태 확인의 백업 칸", () => {
   it("없음, 정상, 오래됨, 연습 실패, 끔", async () => {
     const { db, backups } = setup();

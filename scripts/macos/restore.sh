@@ -28,8 +28,14 @@ fi
 
 echo "== 되살리기"
 if ! NAEIL_DB="$DB" NAEIL_HOST=127.0.0.1 NAEIL_PORT="$PORT" "$NODE" "$CLI" restore "$WHICH"; then
-  echo "되살리기 실패. 서버를 지금 자료로 다시 켭니다" >&2
-  launchctl kickstart "$DOMAIN/$LABEL" || true
+  # 되살리기는 중간에 실패하면 원래 자료를 제자리로 되돌린다. 그래도 자료 파일이 없으면 켜지 않는다
+  # (켜면 빈 자료 파일이 새로 생겨 빈 작업판이 정상처럼 보임)
+  if [ -e "$DB" ]; then
+    echo "되살리기 실패. 원래 자료 그대로 서버를 다시 켭니다" >&2
+    launchctl kickstart "$DOMAIN/$LABEL" || true
+  else
+    echo "되살리기 실패, 자료 파일이 제자리에 없어 서버를 켜지 않습니다. $APP_HOME/backups/before-restore-* 를 확인하세요" >&2
+  fi
   exit 1
 fi
 

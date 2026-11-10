@@ -199,36 +199,78 @@ export function writeDrillResult(dir: string, result: DrillResult): void {
   writeFileSync(join(dir, "last-drill.json"), `${JSON.stringify(result, null, 2)}\n`);
 }
 
-// 복원: 서버가 꺼진 상태에서만 부른다
+// 복원: 서버가 꺼진 상태에서만 부른다.
+// 순서 (11-10 맥 확인에서 Codex 가 짚은 「중간에 실패하면 원래 자료로 안 돌아옴」을 막는 순서)
+//   1) 준비: 백업을 옆 임시 파일로 되살려 표 구조 올리기, 폐기 명부 적용, 무결성까지 끝낸다. 여기서 실패하면 지금 자료는 손대지 않은 그대로
+//   2) 바꿔 끼우기: 지금 자료(곁 파일 포함)를 before-restore 폴더로 옮기고 준비한 파일을 제자리에 놓는다.
+//      여기서 실패하면 옮긴 원래 자료를 제자리로 되돌린 뒤 실패를 알린다
+// inject 는 시험에서 단계마다 일부러 실패를 넣는 자리
+export type RestoreStage = "prepared" | "moved";
 export async function restore(
   backupFile: string,
   dbPath: string,
   ledgerPath: string,
   now: Date = new Date(),
+  inject?: (stage: RestoreStage) => void,
 ): Promise<{ movedTo: string | null; reapplied: string[] }> {
   const facts = inspect(backupFile);
   if (facts.integrity !== "ok") throw new Error(`백업 파일이 깨져 있음: ${facts.integrity}`);
-  // 지금 자료(곁 파일 포함)는 지우지 않고 옮겨 둔다
+  const sidecars = (f: string) => [f, `${f}-wal`, `${f}-shm`];
+  const staging = `${dbPath}.restoring`;
+  const clean = (f: string) => {
+    for (const x of sidecars(f)) if (existsSync(x)) unlinkSync(x);
+  };
+
+  // 1) 준비
+  clean(staging);
+  let reapplied: string[] = [];
+  try {
+    const src = new Database(backupFile, { readonly: true, fileMustExist: true });
+    try {
+      await src.backup(staging);
+    } finally {
+      src.close();
+    }
+    const db = openDb(staging);
+    try {
+      reapplied = syncRevocations(db, ledgerPath).reapplied;
+      const after = db.pragma("integrity_check", { simple: true });
+      if (after !== "ok") throw new Error(`되살린 자료가 깨져 있음: ${after}`);
+      db.pragma("wal_checkpoint(TRUNCATE)");
+    } finally {
+      db.close();
+    }
+    inject?.("prepared");
+  } catch (err) {
+    clean(staging);
+    throw err;
+  }
+
+  // 2) 바꿔 끼우기
   let movedTo: string | null = null;
-  const current = [dbPath, `${dbPath}-wal`, `${dbPath}-shm`].filter((f) => existsSync(f));
-  if (current.length > 0) {
-    movedTo = join(dirname(dbPath), "backups", `before-restore-${stamp(now)}`);
-    mkdirSync(movedTo, { recursive: true });
-    for (const f of current) renameSync(f, join(movedTo, basename(f)));
-  }
-  const src = new Database(backupFile, { readonly: true, fileMustExist: true });
+  const moved: string[] = [];
   try {
-    await src.backup(dbPath);
-  } finally {
-    src.close();
+    const current = sidecars(dbPath).filter((f) => existsSync(f));
+    if (current.length > 0) {
+      movedTo = join(dirname(dbPath), "backups", `before-restore-${stamp(now)}`);
+      mkdirSync(movedTo, { recursive: true });
+      for (const f of current) {
+        renameSync(f, join(movedTo, basename(f)));
+        moved.push(f);
+      }
+    }
+    inject?.("moved");
+    for (const x of sidecars(staging).slice(1)) if (existsSync(x)) unlinkSync(x);
+    renameSync(staging, dbPath);
+  } catch (err) {
+    // 원래 자료를 제자리로. 준비한 파일은 바꿔 끼우기(마지막 이름 바꾸기)가 성공해야만 제자리에 들어가므로
+    // 여기서 dbPath 에 있는 것은 언제나 원래 자료다. 지우지 않는다
+    for (const f of moved) {
+      const from = join(movedTo as string, basename(f));
+      if (existsSync(from)) renameSync(from, f);
+    }
+    clean(staging);
+    throw new Error(`되살리기 바꿔 끼우기 실패, 원래 자료로 되돌림: ${(err as Error).message}`);
   }
-  const db = openDb(dbPath);
-  try {
-    const { reapplied } = syncRevocations(db, ledgerPath);
-    const after = db.pragma("integrity_check", { simple: true });
-    if (after !== "ok") throw new Error(`되살린 자료가 깨져 있음: ${after}`);
-    return { movedTo, reapplied };
-  } finally {
-    db.close();
-  }
+  return { movedTo, reapplied };
 }
