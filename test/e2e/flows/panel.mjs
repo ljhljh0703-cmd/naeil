@@ -19,15 +19,21 @@ export async function run({ page, ok, until, base, out }) {
   );
   ok(p.url().includes("open=change%3A"), "주소에 열린 항목이 담김");
   ok(
-    await p.evaluate(() => document.activeElement?.id === "detail-title"),
+    await until(() => p.evaluate(() => document.activeElement?.id === "detail-title")),
     "열면 상세 제목으로 포커스",
   );
   await p.screenshot({ path: `${out}/panel-1440.png` });
 
   // J 로 다음
   await p.keyboard.press("j");
-  ok((await p.locator("#detail-title").textContent()) !== firstText, "J 로 다음 항목");
-  ok((await p.locator(".pos").textContent()).startsWith("2 /"), "몇 번째인지 표시 2 / N");
+  ok(
+    await until(async () => (await p.locator("#detail-title").textContent()) !== firstText),
+    "J 로 다음 항목",
+  );
+  ok(
+    await until(async () => (await p.locator(".pos").textContent()).startsWith("2 /")),
+    "몇 번째인지 표시 2 / N",
+  );
 
   // 열린 채 다른 목록 카드
   await p.locator("#due-title + ul .card-link").first().click();
@@ -40,7 +46,9 @@ export async function run({ page, ok, until, base, out }) {
   await p.keyboard.press("Escape");
   ok(await until(async () => (await p.locator(".detail").count()) === 0), "Esc 로 닫힘");
   ok(
-    await p.evaluate(() => document.activeElement?.closest("#due-title + ul") !== null),
+    await until(() =>
+      p.evaluate(() => document.activeElement?.closest("#due-title + ul") !== null),
+    ),
     "닫으면 연 카드로 포커스가 돌아옴",
   );
   ok(!p.url().includes("open="), "닫으면 주소에서 빠짐");

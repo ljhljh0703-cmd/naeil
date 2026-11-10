@@ -37,7 +37,9 @@ export async function run({ page, ok, until, base, out }) {
   ok(p.url().includes("open=milestone%3A"), "주소에 열린 마일스톤이 담김");
   await p.keyboard.press("j");
   ok(
-    (await p.locator("#detail-title").textContent()) === "오늘 화면 하루 써 보기",
+    await until(
+      async () => (await p.locator("#detail-title").textContent()) === "오늘 화면 하루 써 보기",
+    ),
     "J 로 다음 마일스톤",
   );
 
@@ -98,7 +100,10 @@ export async function run({ page, ok, until, base, out }) {
 
   // 프로젝트 바꾸기, 새로고침해도 유지
   await p.getByRole("button", { name: "젤리 패닉" }).click();
-  ok((await p.locator("#board-title").textContent()) === "젤리 패닉", "프로젝트 바꾸기");
+  ok(
+    await until(async () => (await p.locator("#board-title").textContent()) === "젤리 패닉"),
+    "프로젝트 바꾸기",
+  );
   await p.reload();
   await p.waitForSelector(".board-head");
   ok(
