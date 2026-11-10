@@ -32,13 +32,21 @@ export function createKey(db: Database.Database, name: string, workspace = "me")
   return key;
 }
 
-export function revokeKey(db: Database.Database, name: string, workspace = "me"): boolean {
-  const res = db
+// 폐기하면 잠근 값을 돌려준다. 부르는 쪽이 폐기 명부(src/revocations.ts)에도 적는다.
+export function revokeKey(
+  db: Database.Database,
+  name: string,
+  workspace = "me",
+): { keyHash: string; name: string; revokedAt: string } | null {
+  const row = db
     .prepare(
-      "UPDATE api_keys SET revoked_at = ? WHERE workspace_id = ? AND name = ? AND revoked_at IS NULL",
+      "SELECT key_hash FROM api_keys WHERE workspace_id = ? AND name = ? AND revoked_at IS NULL",
     )
-    .run(new Date().toISOString(), workspace, name);
-  return res.changes > 0;
+    .get(workspace, name) as { key_hash: string } | undefined;
+  if (!row) return null;
+  const revokedAt = new Date().toISOString();
+  db.prepare("UPDATE api_keys SET revoked_at = ? WHERE key_hash = ?").run(revokedAt, row.key_hash);
+  return { keyHash: row.key_hash, name, revokedAt };
 }
 
 export function listKeys(db: Database.Database, workspace = "me") {

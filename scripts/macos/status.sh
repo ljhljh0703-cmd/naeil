@@ -22,4 +22,15 @@ if out="$(curl -s -w '  (HTTP %{http_code})' "http://127.0.0.1:$PORT/health")"; 
 else
   echo "상태 확인: 연결 안 됨 (포트 $PORT)"
 fi
-echo "기록:     $LOG_DIR/server.log, $LOG_DIR/server.err.log"
+BK="${NAEIL_BACKUP_DIR:-$APP_HOME/backups}"
+LAST="$(ls -1 "$BK"/naeil-*.db 2>/dev/null | sort | tail -n 1 || true)"
+if [ -n "$LAST" ]; then
+  echo "최근 백업: $(basename "$LAST") (모두 $(ls -1 "$BK"/naeil-*.db 2>/dev/null | wc -l | tr -d ' ')개)"
+else
+  echo "최근 백업: 없음"
+fi
+if [ -f "$BK/last-drill.json" ]; then
+  if grep -q '"ok": true' "$BK/last-drill.json"; then echo "복원 연습: 통과"; else echo "복원 연습: 실패 ($BK/last-drill.json)"; fi
+fi
+echo "폐기 명부: $( [ -f "$APP_HOME/revoked-keys.json" ] && echo 있음 || echo 없음)"
+echo "기록:     $LOG_DIR/server.log, $LOG_DIR/server.err.log, $LOG_DIR/backup.log"

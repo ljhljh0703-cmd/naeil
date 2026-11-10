@@ -2,7 +2,7 @@
 // 저장소 밖 빈 폴더에서 켜고, 자료 파일도 그 폴더에 따로 둔다. 실제 작업판 자료는 건드리지 않는다.
 //   npm run smoke   (= 굽기 + 이 파일)
 //   배포 스크립트(scripts/macos/deploy.sh)도 새 판을 바꿔 끼우기 전에 이 파일을 그 판 안에서 돌린다.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdtempSync, renameSync, rmSync, unlinkSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -76,6 +76,15 @@ try {
     const problem = await api.json();
     check("명세서를 읽어 출입증 검사가 돎 (401)", api.status === 401 && typeof problem.type === "string", `${api.status}`);
     check("자료 파일이 정한 자리에 생김", existsSync(a.dbPath), a.dbPath);
+    // 켜진 서버 옆에서 백업 명령 (매일 자동 실행이 부르는 그대로)
+    const cliEnv = { ...process.env, NAEIL_HOST: "127.0.0.1", NAEIL_PORT: a.base.split(":").at(-1), NAEIL_DB: a.dbPath };
+    const cli = join(root, "dist", "cli", "backup.js");
+    const run = spawnSync(process.execPath, [cli, "run"], { cwd: work, env: cliEnv, encoding: "utf8" });
+    check("켜진 채 백업과 복원 연습 (종료 0)", run.status === 0, `${run.status} ${run.stdout.slice(-300)} ${run.stderr.slice(-300)}`);
+    const after = await (await fetch(`${a.base}/health`)).json();
+    check("상태 확인 백업 칸 ok", after.checks?.backup === "ok", JSON.stringify(after.checks));
+    const refuse = spawnSync(process.execPath, [cli, "restore", "latest"], { cwd: work, env: cliEnv, encoding: "utf8" });
+    check("서버가 켜져 있으면 되살리기를 거절", refuse.status === 1 && refuse.stderr.includes("서버가 켜져 있음"), `${refuse.status} ${refuse.stderr.slice(-200)}`);
     a.child.kill("SIGTERM");
     const end = await exitWithin(a, 5000);
     // 자동 실행은 0 으로 끝나면 다시 켜지 않는다. 사람이 끈 것은 꺼진 채로

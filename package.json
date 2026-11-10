@@ -25,7 +25,8 @@
     "check": "npm run lint && npm run typecheck && npm test && npm run smoke",
     "lint:api": "npx -y @redocly/cli@1 lint docs/api/openapi.yaml",
     "key": "tsx src/cli/key.ts",
-    "deploy:mac": "bash scripts/macos/deploy.sh"
+    "deploy:mac": "bash scripts/macos/deploy.sh",
+    "backup": "tsx src/cli/backup.ts"
   },
   "dependencies": {
     "@fastify/static": "^10.1.7",

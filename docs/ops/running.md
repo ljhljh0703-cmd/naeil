@@ -35,7 +35,8 @@ bash scripts/macos/status.sh
 |---|---|
 | `bash scripts/macos/status.sh` | 판, 자료 파일, 등록 상태, 다시 켜진 횟수, 상태 확인 답 |
 | `bash scripts/macos/rollback.sh` | 바로 전 판으로 되돌림 (자료 파일은 그대로) |
-| `bash scripts/macos/uninstall.sh` | 자동 실행 해제. 판과 자료 파일은 남김 |
+| `bash scripts/macos/restore.sh <latest\|파일>` | 백업에서 되살리기 (아래 「백업과 되살리기」) |
+| `bash scripts/macos/uninstall.sh` | 자동 실행(서버, 매일 백업) 해제. 판, 자료 파일, 백업은 남김 |
 
 - 새 판은 바꿔 끼우기 전에 그 판 안에서 연기 시험을 돌린다. 실패하면 지금 판은 그대로 둔다
 - 바꿔 끼운 뒤 20초 안에 상태 확인이 200 이 안 되면 이전 판으로 되돌리고 실패로 끝난다
@@ -45,6 +46,32 @@ bash scripts/macos/status.sh
 - 기록: `~/Library/Logs/naeil/server.log`, `server.err.log`
 - 출입증은 배포본 자료 파일에 만든다: `NAEIL_DB="$HOME/Library/Application Support/naeil/naeil.db" npm run key -- new author` (예전 자료를 복사했다면 그 안의 출입증이 그대로 통함)
 - 배포해 둔 동안 저장소에서 `npm start` 를 하면 같은 3700 포트를 두고 부딪힌다. 개발할 때는 `NAEIL_PORT=3701 npm run serve` 처럼 다른 포트로
+
+## 백업과 되살리기
+| 언제 | 무엇이 |
+|---|---|
+| 매일 새벽 4시 17분 (잠자고 있었으면 깨어날 때) | 백업 → 그 백업으로 복원 연습 → 14개만 남기고 정리 (`com.naeil.backup`) |
+| 배포할 때마다 | 바꿔 끼우기 전에 같은 일. 실패하면 배포를 멈춤 |
+| 손으로 | `node "$HOME/Library/Application Support/naeil/current/dist/cli/backup.js" run` (저장소에서는 `npm run backup -- run`) |
+
+- 자리: `~/Library/Application Support/naeil/backups/naeil-<세계 표준시>.db` 와 기록표 `.json` (크기, 지문, 줄 수, 표 구조 판)
+- 켜진 서버가 쓰는 중에도 뜬다 (SQLite 백업). 곁 파일 없이 파일 하나로 끝난다
+- 복원 연습은 백업을 임시 폴더에 되살려 앱으로 열어 본다: 무결성, 지문, 줄 수, 폐기한 출입증이 막히는지, 상태 확인, 프로젝트 목록. 실제 자료는 건드리지 않는다. 결과는 `backups/last-drill.json`
+- 상태 확인 `checks.backup`: `ok`(36시간 안 백업, 마지막 연습 통과), `stale`, `none`, `failed`. 알리기만 하고 `ok` 에는 넣지 않는다
+- 보관 개수: `NAEIL_BACKUP_KEEP` (기본 14). 자리: `NAEIL_BACKUP_DIR`
+
+### 되살리기 (맥)
+```bash
+bash scripts/macos/restore.sh latest                        # 가장 최근 백업
+bash scripts/macos/restore.sh naeil-20261110T041700Z.db     # 고른 백업
+```
+서버를 끄고(끄라는 신호라 다시 켜지지 않음), 지금 자료를 `backups/before-restore-<시각>/` 으로 **옮겨 두고**(지우지 않음), 백업을 제자리에 놓고, 폐기 명부를 다시 적용한 뒤 켠다. 서버가 켜져 있으면 되살리기 명령은 거절한다.
+
+### 폐기한 출입증은 되살려도 막힌 채로
+폐기하기 전에 뜬 백업 안에서는 그 출입증이 아직 살아 있다. 그래서 폐기할 때 자료 파일 「밖」의 폐기 명부(`revoked-keys.json`, 자료 파일 옆)에도 적고, 서버를 켤 때와 되살릴 때마다 명부를 다시 적용한다.
+- 명부에는 잠근 값(sha256)과 이름, 시각만. 출입증 원문은 없다
+- 명부가 생기기 전에 폐기한 것은 켤 때 자료에서 명부로 옮겨 적는다
+- 명부 파일을 지우면 이 보호가 사라진다. 백업과 같이 지우지 말 것
 
 ## 자료 파일은 어디에
 켤 때 기록 첫머리에 `자료 파일` 줄로 찍힌다. 정하는 순서는 아래와 같다.

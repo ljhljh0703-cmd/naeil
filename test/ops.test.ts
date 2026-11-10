@@ -107,7 +107,7 @@ describe("상태 확인이 자료 파일까지 본다", () => {
     const { app } = start();
     const res = await health(app);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ ok: true, checks: { db: "ok", web: "off" } });
+    expect(res.json()).toEqual({ ok: true, checks: { db: "ok", web: "off", backup: "off" } });
   });
 
   it("켜진 채 파일이 지워지면 503 missing", async () => {
@@ -145,7 +145,7 @@ describe("화면을 굽지 않고 켰을 때", () => {
     expect(page.statusCode).toBe(503);
     expect(page.body).toContain("npm run build");
     const res = await app.inject({ method: "GET", url: "/health" });
-    expect(res.json()).toEqual({ ok: true, checks: { db: "ok", web: "missing" } });
+    expect(res.json()).toEqual({ ok: true, checks: { db: "ok", web: "missing", backup: "off" } });
   });
 });
 

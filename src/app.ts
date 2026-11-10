@@ -10,6 +10,7 @@ import Fastify, {
   type RouteHandlerMethod,
 } from "fastify";
 import { findKey, type KeyInfo } from "./auth.js";
+import { backupState } from "./backup-files.js";
 import { decodeCursor, encodeCursor } from "./cursor.js";
 import { openDb } from "./db/connection.js";
 import {
@@ -47,6 +48,8 @@ export type AppOptions = {
   onDbChecker?: (check: () => DbState) => void;
   logger?: boolean;
   db?: Database.Database;
+  // 백업 폴더. 주면 상태 확인이 최근 백업과 마지막 복원 연습을 알려 준다
+  backupDir?: string;
   // 자료 파일 자리. 주면 상태 확인이 「같은 파일이 그 자리에 있는지」까지 본다
   dbPath?: string;
   // 화면(web/dist)이 있으면 첫 주소에서 화면을 연다
@@ -274,7 +277,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     const dbState = checkDb();
     const ok = dbState === "ok";
     if (!ok) reply.code(503);
-    return { ok, checks: { db: dbState, web } };
+    return { ok, checks: { db: dbState, web, backup: backupState(options.backupDir, clock()) } };
   });
 
   // ── 프로젝트 ──
