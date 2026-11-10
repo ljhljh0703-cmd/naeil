@@ -12,6 +12,40 @@
 - 설정: 저장소 뿌리의 `.env`. 이미 있는 환경 변수가 먼저다 (자동 실행 설정에 적은 값이 `.env` 보다 우선)
 - 표 구조 파일, 명세서, 화면 파일: 저장소 뿌리 기준
 
+## 맥에서 늘 켜 두기 (자동 실행)
+```bash
+cd "<저장소 폴더>"
+npm ci
+npm run deploy:mac        # = bash scripts/macos/deploy.sh
+bash scripts/macos/status.sh
+```
+배포 스크립트는 저장소에서 굽고, 실행에 필요한 것만 「라이브러리/Application Support/naeil/releases/<판>」 에 복사한 뒤 `current` 를 그 판으로 바꾼다.
+저장소가 다운로드, 문서, 데스크탑 폴더 안에 있으면 맥이 자동 실행 프로그램의 접근을 막기 때문에, 서버는 저장소가 아닌 이 복사본에서 돈다.
+저장소에서 코드를 고치거나 AI 세션이 작업해도 켜진 서버는 다음 배포 전까지 그대로다.
+
+| 상황 | 자동 실행이 하는 일 |
+|---|---|
+| 맥에 로그인 | 켬 |
+| 서버가 죽음 (0 이 아닌 종료, 강제 종료) | 10초 안쪽에 다시 켬 |
+| 켜진 채 자료 파일이 다른 파일(백업본)로 바뀜 | 서버가 30초 안에 스스로 꺼지고(종료 75), 다시 켜지면서 새 파일을 엶 |
+| 켜진 채 자료 파일이 지워짐 | 끄지 않음. 상태 확인 503 `missing` 을 유지 (다시 켜면 빈 작업판이 새로 생겨 정상처럼 보이므로) |
+| 사람이 끔 (`launchctl kill TERM`, 종료 0) | 다시 켜지 않음 |
+
+| 명령 | 하는 일 |
+|---|---|
+| `bash scripts/macos/status.sh` | 판, 자료 파일, 등록 상태, 다시 켜진 횟수, 상태 확인 답 |
+| `bash scripts/macos/rollback.sh` | 바로 전 판으로 되돌림 (자료 파일은 그대로) |
+| `bash scripts/macos/uninstall.sh` | 자동 실행 해제. 판과 자료 파일은 남김 |
+
+- 새 판은 바꿔 끼우기 전에 그 판 안에서 연기 시험을 돌린다. 실패하면 지금 판은 그대로 둔다
+- 바꿔 끼운 뒤 20초 안에 상태 확인이 200 이 안 되면 이전 판으로 되돌리고 실패로 끝난다
+- 판은 셋만 남긴다
+- 처음 배포할 때 자료 파일이 없고 저장소에 예전 `data/naeil.db` 가 있으면 SQLite 백업으로 「복사」한다. 원본은 그대로
+- 자동 실행 설정에는 node 절대경로를 적는다(자동 실행은 셸의 PATH 를 모른다). node 를 바꾸거나 올렸으면 다시 배포한다
+- 기록: `~/Library/Logs/naeil/server.log`, `server.err.log`
+- 출입증은 배포본 자료 파일에 만든다: `NAEIL_DB="$HOME/Library/Application Support/naeil/naeil.db" npm run key -- new author` (예전 자료를 복사했다면 그 안의 출입증이 그대로 통함)
+- 배포해 둔 동안 저장소에서 `npm start` 를 하면 같은 3700 포트를 두고 부딪힌다. 개발할 때는 `NAEIL_PORT=3701 npm run serve` 처럼 다른 포트로
+
 ## 자료 파일은 어디에
 켤 때 기록 첫머리에 `자료 파일` 줄로 찍힌다. 정하는 순서는 아래와 같다.
 
@@ -20,7 +54,7 @@
 | 1 | `NAEIL_DB` 가 절대경로 | 그 파일 |
 | 2 | `NAEIL_DB` 가 상대경로 | 저장소 뿌리 기준으로 읽은 파일 (켤 때 알림) |
 | 3 | `NAEIL_DB` 가 없고 저장소 안 `data/naeil.db` 가 있음 | 그 파일 (예전 기본값. 켤 때 옮기기 권함) |
-| 4 | 둘 다 없음 | 맥 `~/Library/Application Support/naeil/naeil.db`, 리눅스 `~/.local/share/naeil/naeil.db`, 윈도우 `%APPDATA%\naeil\naeil.db` |
+| 4 | 둘 다 없음 (맥 자동 실행은 늘 1번: 자동 실행 설정에 절대경로를 적음) | 맥 `~/Library/Application Support/naeil/naeil.db`, 리눅스 `~/.local/share/naeil/naeil.db`, 윈도우 `%APPDATA%\naeil\naeil.db` |
 
 저장소 밖에 두는 이유: 같은 컴퓨터에서 저장소 폴더를 여는 AI 세션이 자료 파일을 직접 열거나 지울 수 있다. 아이클라우드 동기화 폴더(문서, 데스크탑)는 반쯤 받은 파일을 열 수 있어 피한다.
 

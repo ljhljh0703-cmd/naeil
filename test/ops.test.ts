@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { LEGACY_DB, loadConfig } from "../src/config.js";
 import { openDb } from "../src/db/connection.js";
+import { RESTART_EXIT_CODE, selfCheckAction } from "../src/health.js";
 import {
   defaultDataDir,
   findRoot,
@@ -145,5 +146,16 @@ describe("화면을 굽지 않고 켰을 때", () => {
     expect(page.body).toContain("npm run build");
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.json()).toEqual({ ok: true, checks: { db: "ok", web: "missing" } });
+  });
+});
+
+describe("켜 둔 채 스스로 살피기", () => {
+  it("다른 파일로 바뀌면 끄고 다시 켜 달라고 한다, 나머지는 켜 둔다", () => {
+    expect(selfCheckAction("replaced")).toBe("restart");
+    // 지워졌을 때 다시 켜면 빈 자료 파일이 새로 생겨 정상처럼 보인다
+    expect(selfCheckAction("missing")).toBe("keep");
+    expect(selfCheckAction("error")).toBe("keep");
+    expect(selfCheckAction("ok")).toBe("keep");
+    expect(RESTART_EXIT_CODE).not.toBe(0);
   });
 });
