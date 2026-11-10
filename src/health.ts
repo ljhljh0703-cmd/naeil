@@ -27,3 +27,14 @@ export function dbChecker(db: Database.Database, path?: string): () => DbState {
     }
   };
 }
+
+// 켜 둔 채 스스로 살피다가 무엇을 할지.
+// replaced: 끄고 나간다. 자동 실행(맥 launchd)이 다시 켜면 새 파일을 연다.
+// missing: 끄지 않는다. 다시 켜면 그 자리에 빈 자료 파일이 새로 생겨 「빈 작업판」이 정상처럼 보이게 되므로, 503 을 유지해 사람이 보게 한다.
+export type SelfCheckAction = "keep" | "restart";
+export function selfCheckAction(state: DbState): SelfCheckAction {
+  return state === "replaced" ? "restart" : "keep";
+}
+
+// 다시 켜 달라는 뜻의 종료 번호 (자동 실행 설정은 0 이 아닌 종료를 모두 다시 켠다)
+export const RESTART_EXIT_CODE = 75;

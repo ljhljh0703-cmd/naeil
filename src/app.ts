@@ -25,7 +25,7 @@ import {
   type TaskPatch,
 } from "./db/store.js";
 import { AppError, ERROR_DOCS, NotFound, Unauthorized, VersionMismatch } from "./errors.js";
-import { dbChecker, type WebState } from "./health.js";
+import { type DbState, dbChecker, type WebState } from "./health.js";
 import { IdempotencyStore, requestHash } from "./idempotency.js";
 import { routeSchema, specSchemaBundle, toFastifyPath } from "./spec.js";
 
@@ -43,6 +43,8 @@ declare module "fastify" {
 }
 
 export type AppOptions = {
+  // 켜 둔 채 자료 파일을 살필 때 쓰는 검사기를 바깥(server.ts)에 넘긴다
+  onDbChecker?: (check: () => DbState) => void;
   logger?: boolean;
   db?: Database.Database;
   // 자료 파일 자리. 주면 상태 확인이 「같은 파일이 그 자리에 있는지」까지 본다
@@ -150,6 +152,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
   const db = options.db ?? openDb(":memory:");
   const clock = options.clock ?? (() => new Date());
   const checkDb = dbChecker(db, options.dbPath);
+  options.onDbChecker?.(checkDb);
   const web: WebState = !options.webDir
     ? "off"
     : existsSync(`${options.webDir}/index.html`)
