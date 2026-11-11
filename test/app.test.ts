@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildApp, TAGLINE } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
+import { VERSION } from "../src/paths.js";
 
 describe("기본 서버", () => {
   it("첫 주소가 이름과 한 줄 소개를 준다", async () => {
@@ -13,7 +14,11 @@ describe("기본 서버", () => {
   it("상태 확인 주소가 ok를 준다", async () => {
     const app = buildApp();
     const res = await app.inject({ method: "GET", url: "/health" });
-    expect(res.json()).toEqual({ ok: true, checks: { db: "ok", web: "off", backup: "off" } });
+    expect(res.json()).toEqual({
+      ok: true,
+      version: VERSION,
+      checks: { db: "ok", web: "off", backup: "off" },
+    });
   });
 });
 

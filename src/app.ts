@@ -28,6 +28,7 @@ import {
 import { AppError, ERROR_DOCS, NotFound, Unauthorized, VersionMismatch } from "./errors.js";
 import { type DbState, dbChecker, type WebState } from "./health.js";
 import { IdempotencyStore, requestHash } from "./idempotency.js";
+import { VERSION } from "./paths.js";
 import { routeSchema, specSchemaBundle, toFastifyPath } from "./spec.js";
 
 // 옛 방식(CommonJS) 꾸러미라 .default 로 꺼낸다
@@ -277,7 +278,11 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     const dbState = checkDb();
     const ok = dbState === "ok";
     if (!ok) reply.code(503);
-    return { ok, checks: { db: dbState, web, backup: backupState(options.backupDir, clock()) } };
+    return {
+      ok,
+      version: VERSION,
+      checks: { db: dbState, web, backup: backupState(options.backupDir, clock()) },
+    };
   });
 
   // ── 프로젝트 ──

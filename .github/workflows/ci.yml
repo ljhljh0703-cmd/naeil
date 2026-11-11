@@ -21,6 +21,29 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      # 꾸러미 보안 경고: 실제로 돌리는 꾸러미만, 높음 이상이면 실패 (보통은 알림만)
+      - name: 꾸러미 보안 검사
+        run: npm audit --omit=dev --audit-level=high
       # 저장소 기록 전체를 훑는다. 첫 올리기에서도 돌도록 액션 대신 공식 이미지를 직접 쓴다.
       - name: 비밀 키 검사
         run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.21.2 git /repo --redact --verbose
+
+  e2e:
+    # 브라우저 흐름 시험: 구운 판을 새 빈 자료로 켜고 실제 브라우저로 눌러 본다
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+      - name: 캡처와 결과 올리기
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-out
+          path: test/e2e/out/
+          retention-days: 14
