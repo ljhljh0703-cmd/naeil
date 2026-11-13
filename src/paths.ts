@@ -26,13 +26,15 @@ export const VERSION: string = JSON.parse(readFileSync(join(ROOT, "package.json"
 
 // 자료 파일의 기본 자리: 저장소 밖, 운영체제가 앱 자료를 두라고 정한 곳.
 // 맥의 문서·데스크탑(아이클라우드 동기화)이 아닌 「라이브러리/Application Support」.
+// 윈도우는 이 기기에만 두는 AppData\Local (Roaming 은 다른 기기로 따라다니는 설정용이라 자료 파일에 맞지 않음).
 export function defaultDataDir(
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
   home: string = homedir(),
 ): string {
   if (platform === "darwin") return join(home, "Library", "Application Support", "naeil");
-  if (platform === "win32") return join(env.APPDATA ?? join(home, "AppData", "Roaming"), "naeil");
+  if (platform === "win32")
+    return join(env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "naeil");
   return join(env.XDG_DATA_HOME ?? join(home, ".local", "share"), "naeil");
 }
 

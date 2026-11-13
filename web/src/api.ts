@@ -1,4 +1,6 @@
 // 화면 → 서버. 화면은 「author」 출입증으로 부른다.
+
+import { newKey } from "./ids.js";
 import type { BlockedReason, Status, Task } from "./today.js";
 
 export type Project = { id: string; name: string };
@@ -102,7 +104,7 @@ async function call<T>(
 
 // 만들기에는 재시도 열쇠를 붙인다. 화면이 열쇠를 넘기면(같은 입력의 다시 시도) 그 열쇠를 다시 쓴다.
 // 응답만 못 받고 서버에는 저장된 경우에도 다시 시도가 두 번째 것을 만들지 않는다.
-const once = (key?: string) => ({ "idempotency-key": key ?? crypto.randomUUID() });
+const once = (key?: string) => ({ "idempotency-key": key ?? newKey() });
 
 type Page<T> = { items: T[]; nextCursor: string | null };
 

@@ -19,7 +19,7 @@ if (!existsSync(entry) || !existsSync(join(root, "web", "dist", "index.html"))) 
   process.exit(1);
 }
 
-const ALL = ["basics", "board", "panel"];
+const ALL = ["basics", "board", "panel", "phone"];
 const pick = process.argv.slice(2);
 const flows = pick.length > 0 ? pick : ALL;
 
@@ -114,7 +114,10 @@ function tools(base, key, name, results) {
 }
 
 mkdirSync(out, { recursive: true });
-const browser = await chromium.launch();
+// phone 흐름: naeil-phone.test 를 이 컴퓨터로 보내 「평문 주소로 연 폰」을 흉내 낸다
+const browser = await chromium.launch({
+  args: ["--host-resolver-rules=MAP naeil-phone.test 127.0.0.1"],
+});
 const results = [];
 let crashed = false;
 try {
