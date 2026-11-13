@@ -22,7 +22,7 @@ npm run key -- new author     # 화면용 출입증. 한 번만 보이니 바로
 ```bash
 npm start                     # 서버와 화면을 굽고, 구운 판으로 켠다 → http://127.0.0.1:3700
 ```
-맥에서 늘 켜 두려면 `npm run deploy:mac` (로그인하면 켜지고, 죽으면 다시 켜지고, 매일 백업과 복원 연습). 어느 폴더에서 켜도 같은 설정(저장소의 `.env`)과 같은 자료 파일을 쓴다. 켤 때 자료 파일 자리를 기록에 찍는다. 자세한 것은 `docs/ops/running.md`.
+늘 켜 두려면 윈도우는 `npm run deploy:windows` (컴퓨터가 켜지면 로그인 전에도 켜지고, 죽으면 다시 켜지고, 매일 백업과 복원 연습), 맥은 `npm run deploy:mac`. 폰에서는 `scripts\windows\phone.ps1` 이 여는 Tailscale 암호화 주소로. 어느 폴더에서 켜도 같은 설정(저장소의 `.env`)과 같은 자료 파일을 쓴다. 켤 때 자료 파일 자리를 기록에 찍는다. 자세한 것은 `docs/ops/running.md`.
 
 처음 열면 출입증 칸이 나온다. 위에서 복사한 `nk_…` 를 붙여 넣는다.
 
