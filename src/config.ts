@@ -55,6 +55,18 @@ export function loadConfig(
       "자료 파일이 저장소 폴더 안에 있음. 같은 컴퓨터의 AI 세션이 파일을 직접 열 수 있으니 저장소 밖으로 옮기길 권함 (운영 안내서 참고)",
     );
   }
-  // 기본은 이 컴퓨터 안에서만 열림. 폰 접속은 Tailscale 주소로만 연다.
-  return { host: env.NAEIL_HOST ?? "127.0.0.1", port, dbPath, notes };
+  // 기본은 이 컴퓨터 안에서만 열림. 폰 접속은 서버 주소를 바꾸지 않고 tailscale serve 의 암호화 주소로 연다.
+  const host = env.NAEIL_HOST?.trim() || "127.0.0.1";
+  if (!isLoopback(host)) {
+    notes.push(
+      `서버가 이 컴퓨터 밖(${host})으로 열림. 출입증이 평문으로 오가니 폰 접속은 NAEIL_HOST 를 비우고 tailscale serve 로 (운영 안내서 「폰에서 열기」)`,
+    );
+  }
+  return { host, port, dbPath, notes };
+}
+
+// 이 컴퓨터 안에서만 닿는 주소인가
+export function isLoopback(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
+  return h === "localhost" || h === "::1" || /^127\.\d+\.\d+\.\d+$/.test(h);
 }

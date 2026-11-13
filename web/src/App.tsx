@@ -10,6 +10,7 @@ import {
   setKey,
 } from "./api.js";
 import { type ActFn, CardList, DetailPanel, type OpenFn } from "./ItemViews.js";
+import { newKey } from "./ids.js";
 import {
   type Action,
   type CardModel,
@@ -657,8 +658,8 @@ function AddTask({
     setBusy(true);
     const input = JSON.stringify([chosen, newProject.trim(), title.trim(), due]);
     if (keys.current.input !== input) keys.current = { input };
-    keys.current.project ??= crypto.randomUUID();
-    keys.current.task ??= crypto.randomUUID();
+    keys.current.project ??= newKey();
+    keys.current.task ??= newKey();
     try {
       let pid = chosen;
       if (!pid || pid === "__new") {

@@ -81,9 +81,29 @@ describe("자료 파일 자리", () => {
     );
     expect(defaultDataDir("linux", {}, "/home/me")).toBe("/home/me/.local/share/naeil");
     expect(defaultDataDir("linux", { XDG_DATA_HOME: "/x" }, "/home/me")).toBe("/x/naeil");
-    expect(
-      defaultDataDir("win32", { APPDATA: "C:\\Users\\me\\AppData\\Roaming" }, "C:\\Users\\me"),
-    ).toContain("naeil");
+    // 윈도우는 이 기기에만 두는 AppData 의 Local (Roaming 아님)
+    const win = defaultDataDir(
+      "win32",
+      { LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local" },
+      "C:\\Users\\me",
+    );
+    expect(win).toContain("Local");
+    expect(win).not.toContain("Roaming");
+    expect(win.endsWith("naeil")).toBe(true);
+  });
+
+  it("서버 주소가 이 컴퓨터 밖이면 경고 (폰은 tailscale serve 로)", () => {
+    for (const host of [undefined, "127.0.0.1", "localhost", "::1", "[::1]", "127.0.0.2"]) {
+      const c = loadConfig(host === undefined ? {} : { NAEIL_HOST: host }, ctx());
+      expect(c.notes.filter((n) => n.includes("tailscale serve"))).toEqual([]);
+    }
+    expect(loadConfig({}, ctx()).host).toBe("127.0.0.1");
+    expect(loadConfig({ NAEIL_HOST: " " }, ctx()).host).toBe("127.0.0.1");
+    for (const host of ["0.0.0.0", "192.168.0.5", "100.64.1.2", "::"]) {
+      const c = loadConfig({ NAEIL_HOST: host }, ctx());
+      expect(c.host).toBe(host);
+      expect(c.notes.some((n) => n.includes("tailscale serve"))).toBe(true);
+    }
   });
 
   it("메모리 자료는 그대로", () => {

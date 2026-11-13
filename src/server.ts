@@ -75,6 +75,15 @@ function shutdown(code: number) {
 }
 for (const sig of ["SIGTERM", "SIGINT"] as const) process.once(sig, () => shutdown(0));
 
+// 윈도우 실행기(scripts/service.mjs) 아래에서 켜졌을 때: 윈도우에는 끄라는 신호가 없어서,
+// 실행기가 꺼지면(작업 스케줄러가 멈추면) 이어진 입력 통로가 닫히는 것을 신호로 삼아 같이 끝낸다.
+// 실행기 없이 남아 포트를 붙잡는 서버가 생기지 않게.
+if (process.env.NAEIL_SUPERVISED === "1" && !process.stdin.isTTY) {
+  process.stdin.on("end", () => shutdown(0));
+  process.stdin.on("error", () => shutdown(0));
+  process.stdin.resume();
+}
+
 app.listen({ host: config.host, port: config.port }).catch((err) => {
   app.log.error(err);
   process.exit(1);

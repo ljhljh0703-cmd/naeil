@@ -32,7 +32,7 @@ const results = [];
 const check = (name, pass, detail = "") => results.push({ name, pass, detail });
 const servers = [];
 
-async function start(name, extraEnv = {}) {
+async function start(name, extraEnv = {}, { stdin = "ignore" } = {}) {
   const port = await freePort();
   const dbPath = join(work, `${name}.db`);
   const env = {
@@ -43,7 +43,7 @@ async function start(name, extraEnv = {}) {
     NAEIL_SELF_CHECK_SECONDS: "0",
     ...extraEnv,
   };
-  const child = spawn(process.execPath, [entry], { cwd: work, env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [entry], { cwd: work, env, stdio: [stdin, "pipe", "pipe"] });
   const s = { name, child, base: `http://127.0.0.1:${port}`, dbPath, log: "" };
   child.stdout.on("data", (d) => (s.log += d));
   child.stderr.on("data", (d) => (s.log += d));
@@ -60,6 +60,9 @@ async function start(name, extraEnv = {}) {
   return { ...s, health: null };
 }
 const exitWithin = (s, ms) => Promise.race([s.exited, wait(ms).then(() => null)]);
+// 윈도우는 끄라는 신호(SIGTERM)가 없고 열린 파일을 바꾸거나 지울 수 없다. 그 시험은 윈도우에서 건너뛴다
+const WIN = process.platform === "win32";
+const skipped = [];
 
 try {
   // ── 1. 켜지고 기본이 도는가 ──
@@ -85,15 +88,28 @@ try {
     check("상태 확인 백업 칸 ok", after.checks?.backup === "ok", JSON.stringify(after.checks));
     const refuse = spawnSync(process.execPath, [cli, "restore", "latest"], { cwd: work, env: cliEnv, encoding: "utf8" });
     check("서버가 켜져 있으면 되살리기를 거절", refuse.status === 1 && refuse.stderr.includes("서버가 켜져 있음"), `${refuse.status} ${refuse.stderr.slice(-200)}`);
-    a.child.kill("SIGTERM");
-    const end = await exitWithin(a, 5000);
-    // 자동 실행은 0 으로 끝나면 다시 켜지 않는다. 사람이 끈 것은 꺼진 채로
-    check("끄라는 신호에 정상 종료(0), 자동 실행이 다시 켜지 않음", end?.code === 0, JSON.stringify(end));
+    if (WIN) {
+      skipped.push("끄라는 신호(SIGTERM)에 정상 종료: 윈도우에는 그 신호가 없음 (아래 실행기 통로 시험이 대신)");
+    } else {
+      a.child.kill("SIGTERM");
+      const end = await exitWithin(a, 5000);
+      // 자동 실행은 0 으로 끝나면 다시 켜지 않는다. 사람이 끈 것은 꺼진 채로
+      check("끄라는 신호에 정상 종료(0), 자동 실행이 다시 켜지 않음", end?.code === 0, JSON.stringify(end));
+    }
   }
 
+  // ── 1-1. 윈도우 실행기 아래: 실행기가 꺼져 입력 통로가 닫히면 같이 정상 종료 ──
+  const sup = await start("supervised", { NAEIL_SUPERVISED: "1" }, { stdin: "pipe" });
+  if (sup.health) {
+    sup.child.stdin.end();
+    const end = await exitWithin(sup, 5000);
+    check("실행기 통로가 닫히면 정상 종료(0), 포트를 붙잡고 남지 않음", end?.code === 0, JSON.stringify(end));
+  } else check("실행기 아래 시험용 서버가 켜짐", false);
+
   // ── 2. 켜진 채 자료 파일이 백업본으로 바뀌면 스스로 꺼짐 ──
-  const b = await start("replaced", { NAEIL_SELF_CHECK_SECONDS: "0.2" });
-  if (b.health) {
+  const b = WIN ? null : await start("replaced", { NAEIL_SELF_CHECK_SECONDS: "0.2" });
+  if (WIN) skipped.push("켜진 채 자료 파일 바꾸기: 윈도우는 열린 파일을 바꿀 수 없음");
+  else if (b.health) {
     copyFileSync(b.dbPath, `${b.dbPath}.backup`);
     renameSync(`${b.dbPath}.backup`, b.dbPath);
     const end = await exitWithin(b, 5000);
@@ -102,8 +118,9 @@ try {
   } else check("자료 파일 바뀜 시험용 서버가 켜짐", false);
 
   // ── 3. 켜진 채 자료 파일이 지워지면 끄지 않고 503 을 유지 ──
-  const c = await start("missing", { NAEIL_SELF_CHECK_SECONDS: "0.2" });
-  if (c.health) {
+  const c = WIN ? null : await start("missing", { NAEIL_SELF_CHECK_SECONDS: "0.2" });
+  if (WIN) skipped.push("켜진 채 자료 파일 지우기: 윈도우는 열린 파일을 지울 수 없음");
+  else if (c.health) {
     for (const f of [c.dbPath, `${c.dbPath}-wal`, `${c.dbPath}-shm`]) if (existsSync(f)) unlinkSync(f);
     const end = await exitWithin(c, 1000);
     const res = await fetch(`${c.base}/health`).catch(() => null);
@@ -123,6 +140,7 @@ try {
 }
 
 for (const r of results) console.log(`${r.pass ? "통과" : "실패"}  ${r.name}${r.pass || !r.detail ? "" : `  (${r.detail})`}`);
+for (const why of skipped) console.log(`건너뜀  ${why}`);
 if (results.length === 0 || results.some((r) => !r.pass)) {
   for (const s of servers) console.error(`\n[${s.name}] 서버 기록:\n${s.log.slice(-1500)}`);
   process.exit(1);
