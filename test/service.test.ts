@@ -66,9 +66,25 @@ const closed = (home: string) => existsSync(join(home, "current", "closed.txt"))
 const state = (home: string) =>
   JSON.parse(readFileSync(join(home, "logs", "service-state.json"), "utf8"));
 
-afterEach(() => {
-  for (const p of procs.splice(0)) if (p.exitCode === null) p.kill("SIGKILL");
-  for (const h of homes.splice(0)) rmSync(h, { recursive: true, force: true });
+afterEach(async () => {
+  // 실행기를 정상으로 끄고(서버도 같이 끝남) 끝날 때까지 기다린 뒤 지운다.
+  // 먼저 지우면 끝나는 중인 가짜 서버가 파일을 써서 폴더 지우기가 실패한다 (11-15 자동 검사에서 한 번 남)
+  await Promise.all(
+    procs.splice(0).map(
+      (p) =>
+        new Promise<void>((resolve) => {
+          if (p.exitCode !== null || p.signalCode !== null) return resolve();
+          const t = setTimeout(() => p.kill("SIGKILL"), 5000);
+          p.once("exit", () => {
+            clearTimeout(t);
+            resolve();
+          });
+          p.kill("SIGTERM");
+        }),
+    ),
+  );
+  for (const h of homes.splice(0))
+    rmSync(h, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe("윈도우 실행기", () => {
