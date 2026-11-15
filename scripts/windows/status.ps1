@@ -14,7 +14,7 @@ foreach ($name in @($TaskServer, $TaskBackup)) {
 }
 $st = Join-Path $LogDir 'service-state.json'
 if (Test-Path $st) {
-  $s = Get-Content $st -Raw | ConvertFrom-Json
+  $s = Get-Content $st -Raw -Encoding UTF8 | ConvertFrom-Json
   $last = if ($s.lastExit) { "마지막 종료 코드 $($s.lastExit.code) ($($s.lastExit.at))" } else { '종료 없음' }
   Write-Host ("실행기:    {0} 부터, 켠 횟수 {1}, 서버 pid {2}, {3}" -f $s.startedAt, $s.runs, $s.pid, $last)
 }
@@ -25,7 +25,7 @@ $list = @(Get-ChildItem -Path $bk -Filter 'naeil-*.db' -ErrorAction SilentlyCont
 if ($list.Count -gt 0) { Write-Host ("최근 백업: {0} (모두 {1}개)" -f $list[-1].Name, $list.Count) } else { Write-Host '최근 백업: 없음' }
 $drill = Join-Path $bk 'last-drill.json'
 if (Test-Path $drill) {
-  $d = Get-Content $drill -Raw | ConvertFrom-Json
+  $d = Get-Content $drill -Raw -Encoding UTF8 | ConvertFrom-Json
   Write-Host ("복원 연습: {0}" -f $(if ($d.ok) { '통과' } else { "실패 ($drill)" }))
 }
 Write-Host ("폐기 명부: {0}" -f $(if (Test-Path (Join-Path $AppHome 'revoked-keys.json')) { '있음' } else { '없음' }))
