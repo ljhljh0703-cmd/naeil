@@ -1,4 +1,4 @@
-// 서버가 주는 오늘 (M1-7): 건너뛰기와 「오늘은 이거」가 서버에 남아, 다른 기기(새 브라우저)에서도 같은 것이 보임
+// 서버가 주는 오늘 (M1-7): 건너뛰기와 「오늘 할 일」이 서버에 남아, 다른 기기(새 브라우저)에서도 같은 것이 보임
 import { fixture as data } from "../fixture.mjs";
 
 export const fixture = data;
@@ -15,12 +15,12 @@ export async function run({ page, ok, until, api, base }) {
     "건너뛰면 다음 할 일이 지금 할 것으로",
   );
   const second = await heroTitle(one.p);
-  await one.p.getByRole("button", { name: "오늘은 이거" }).click();
+  await one.p.getByRole("button", { name: "오늘 할 일" }).click();
   ok(
     await until(async () =>
-      (await one.p.locator(".hero .chip").allTextContents()).includes("오늘은 이거"),
+      (await one.p.locator(".hero .chip").allTextContents()).includes("오늘 할 일"),
     ),
-    "「오늘은 이거」 표시",
+    "「오늘 할 일」 표시",
   );
 
   // 다른 기기: 새 브라우저(저장소 따로), 폰 폭
@@ -29,7 +29,7 @@ export async function run({ page, ok, until, api, base }) {
   await two.p.waitForSelector(".hero");
   ok((await heroTitle(two.p)) === second, "다른 기기에서도 같은 지금 할 것");
   ok(
-    (await two.p.locator(".hero .chip").allTextContents()).includes("오늘은 이거"),
+    (await two.p.locator(".hero .chip").allTextContents()).includes("오늘 할 일"),
     "다른 기기에서도 고정 표시",
   );
 

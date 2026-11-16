@@ -225,7 +225,7 @@ function SectionView({
       {s.kind === "body" && (
         <>
           {s.note && <p className="note">{s.note}</p>}
-          {/* 글은 글자로만 보인다. 바깥 글 안의 태그가 화면에서 실행되지 않게 */}
+          {/* 글은 글자로만 보인다. 외부 입력 안의 태그가 화면에서 실행되지 않게 */}
           <p className="body-text">{s.text}</p>
         </>
       )}

@@ -1,4 +1,4 @@
-// M1-7 바닥 묶음: 출입증 종류, 변경 기록 거르기, 모르는 조건 거절, 서버가 주는 오늘, 바깥 글 표시 강제
+// M1-7 바닥 묶음: API 키 종류, 변경 기록 거르기, 모르는 조건 거절, 서버가 주는 오늘, 외부 입력 표시 강제
 import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
@@ -46,7 +46,7 @@ const newProject = async (key = author) =>
 const newTask = async (projectId: string, extra: Record<string, unknown> = {}, key = author) =>
   (await call("POST", "/v1/tasks", { key, body: { projectId, title: "할 일", ...extra } })).json();
 
-describe("출입증 종류", () => {
+describe("API 키 종류", () => {
   it("이름으로 정하는 기본값: author 사람, claude, codex AI. 밝히면 그 종류", () => {
     expect(findKey(db, author)?.kind).toBe("human");
     expect(findKey(db, claude)?.kind).toBe("ai");
@@ -54,7 +54,7 @@ describe("출입증 종류", () => {
     expect(() => createKey(db, "phone", "me", "robot" as never)).toThrow();
   });
 
-  it("변경 기록에 그때 출입증 종류가 남고, 종류로 거를 수 있다", async () => {
+  it("변경 기록에 그때 API 키 종류가 남고, 종류로 거를 수 있다", async () => {
     const p = await newProject();
     await newTask(p, {}, claude);
     const all = (await call("GET", "/v1/changes")).json().items;
@@ -65,12 +65,12 @@ describe("출입증 종류", () => {
     const ai = (await call("GET", "/v1/changes", { url: "/v1/changes?actorKind=ai" })).json().items;
     expect(ai).toHaveLength(1);
     expect(ai[0].actor).toBe("claude");
-    // 명령줄 등 출입증 없이 바꾼 것은 종류 null
+    // 명령줄 등 API 키 없이 바꾼 것은 종류 null
     new Store(db).createProject("cli", "명령줄");
     expect((await call("GET", "/v1/changes")).json().items[0].actorKind).toBeNull();
   });
 
-  it("005 를 올리면 기존 출입증은 사람, claude 와 codex 만 AI. 기존 기록도 그 종류로 채움", () => {
+  it("005 를 올리면 기존 API 키는 사람, claude 와 codex 만 AI. 기존 기록도 그 종류로 채움", () => {
     const old = new Database(":memory:");
     for (const f of [
       "001_init",
@@ -161,8 +161,8 @@ describe("모르는 조건은 거절", () => {
   });
 });
 
-describe("바깥 글 표시 강제", () => {
-  it("직접 쓴 것이 아니면 보내는 쪽이 빼도 바깥 글", async () => {
+describe("외부 입력 표시 강제", () => {
+  it("직접 쓴 것이 아니면 보내는 쪽이 빼도 외부 입력", async () => {
     const p = await newProject();
     const t = await newTask(p, { source: "github", sourceRef: "o/r#1", externalText: false });
     expect(t.externalText).toBe(true);
@@ -204,7 +204,7 @@ describe("서버가 주는 오늘", () => {
     expect((await call("GET", "/v1/today")).json().now.id).toBe(a);
     const pinned = await call("PUT", "/v1/today", { body: { pinnedTaskId: b, skipped: [] } });
     expect(pinned.json().now.id).toBe(b);
-    // AI 출입증으로 읽어도 같은 것
+    // AI API 키로 읽어도 같은 것
     expect((await call("GET", "/v1/today", { key: claude })).json().now.id).toBe(b);
     const skipped = await call("PUT", "/v1/today", {
       body: { pinnedTaskId: null, skipped: [a, a] },

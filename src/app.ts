@@ -169,9 +169,9 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     sendProblem(reply, new NotFound("그런 주소는 없음"), req.url),
   );
 
-  // ── 출입증: /v1 아래는 전부 ──
+  // ── API 키: /v1 아래는 전부 ──
   // 주소 글자(req.url)가 아닌 「찾아간 주소 틀」로 판단한다. 「/%761/tasks」 처럼 글자를 바꿔 써도
-  // 같은 주소로 찾아가므로, 글자로 판단하면 출입증 검사를 건너뛴다 (2026-10-26 시험에서 발견).
+  // 같은 주소로 찾아가므로, 글자로 판단하면 API 키 검사를 건너뛴다 (2026-10-26 시험에서 발견).
   app.addHook("onRequest", async (req) => {
     if (!req.routeOptions.url?.startsWith("/v1/")) return;
     const m = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? "");
@@ -181,7 +181,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
   });
   app.addHook("preHandler", async (req) => {
     if (!req.key) return;
-    // 사람 출입증으로 그날 처음 부른 시각 (M1-5 사용 기록). 기록 실패가 요청을 막지 않게
+    // 사람 API 키로 그날 처음 부른 시각 (M1-5 사용 기록). 기록 실패가 요청을 막지 않게
     if (req.key.kind === "human") {
       try {
         new Store(db, req.key.workspace, clock).markOpened(kstDate(clock()));
@@ -517,12 +517,15 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     return toDecision(s.getDecision(taskId) as Decision);
   });
 
-  // ── 이어하기 한 장 (M1-4) ──
+  // ── 인수인계 문서 (M1-4) ──
   route("GET", "/v1/handoff", async (req) => {
     const q = req.query as { projectId?: string; milestoneId?: string; taskId?: string };
     const s = storeFor(req);
     if (!s.isOn("handoff")) {
-      throw new RuleViolation("switch-off", "이어하기 스위치가 꺼져 있음. 설정에서 켜면 바로 됨");
+      throw new RuleViolation(
+        "switch-off",
+        "인수인계 문서 기능이 꺼져 있음. 설정에서 켜면 바로 됨",
+      );
     }
     const given = [q.projectId, q.milestoneId, q.taskId].filter(Boolean).length;
     if (given !== 1) throw new BadInput("projectId, milestoneId, taskId 중 하나만");

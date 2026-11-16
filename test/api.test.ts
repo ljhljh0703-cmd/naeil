@@ -70,13 +70,13 @@ describe("명세서와 코드", () => {
   });
 });
 
-describe("출입증", () => {
-  it("상태 확인은 출입증 없이 열린다", async () => {
+describe("API 키", () => {
+  it("상태 확인은 API 키 없이 열린다", async () => {
     const res = await call("GET", "/health", { key: "" });
     expect(res.json()).toMatchObject({ ok: true, checks: { db: "ok" } });
   });
 
-  it("출입증이 없거나 틀리면 401, 오류 모양은 하나", async () => {
+  it("API 키가 없거나 틀리면 401, 오류 모양은 하나", async () => {
     const none = await call("GET", "/v1/tasks", { key: "" });
     expect(none.statusCode).toBe(401);
     expect(none.headers["www-authenticate"]).toBe("Bearer");
@@ -84,20 +84,20 @@ describe("출입증", () => {
     expect(wrong.statusCode).toBe(401);
   });
 
-  it("주소 글자를 바꿔 써도 출입증 검사를 건너뛰지 못한다", async () => {
+  it("주소 글자를 바꿔 써도 API 키 검사를 건너뛰지 못한다", async () => {
     for (const url of ["/%761/tasks", "/v%31/tasks", "/v1/%74asks"]) {
       const res = await app.inject({ method: "GET", url });
       expect([401, 404], url).toContain(res.statusCode);
     }
   });
 
-  it("폐기한 출입증은 바로 막힌다", async () => {
+  it("폐기한 API 키는 바로 막힌다", async () => {
     revokeKey(db, "claude");
     const res = await call("GET", "/v1/tasks", { key: claudeKey });
     expect(res.statusCode).toBe(401);
   });
 
-  it("「누가」는 출입증이 정하고, 세션 이름표는 덧붙는다", async () => {
+  it("「누가」는 API 키가 정하고, 세션 이름표는 덧붙는다", async () => {
     const p = await newProject();
     await call("POST", "/v1/tasks", {
       key: claudeKey,
@@ -206,7 +206,7 @@ describe("같은 요청 두 번 막기", () => {
     expect(b.statusCode).toBe(422);
   });
 
-  it("출입증이 다르면 같은 열쇠도 따로 센다", async () => {
+  it("API 키가 다르면 같은 열쇠도 따로 센다", async () => {
     const p = await newProject();
     const opts = {
       headers: { "idempotency-key": "retry-0003" },
@@ -319,7 +319,7 @@ describe("멈춤·휴지통·되살리기", () => {
     expect(u.json().blockedReason).toBeNull();
   });
 
-  it("AI가 하는 중일 때만 잡은 세션", async () => {
+  it("AI 작업 중일 때만 잡은 세션", async () => {
     const id = await newTask(await newProject());
     const bad = await call("PUT", "/v1/tasks/{taskId}/block", {
       url: `/v1/tasks/${id}/block`,
@@ -934,7 +934,7 @@ describe("프로젝트·마일스톤", () => {
     expect(changesFor(m)).toHaveLength(1);
   });
 
-  it("6개 동작: 출입증 없이 401, 잘못된 번호는 400", async () => {
+  it("6개 동작: API 키 없이 401, 잘못된 번호는 400", async () => {
     const { projectId, milestoneId } = fixture();
     const checks = [
       ["PATCH", projectPath, `/v1/projects/${projectId}`, { name: "x" }],

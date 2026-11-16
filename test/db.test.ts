@@ -110,7 +110,7 @@ describe("할 일", () => {
     expect(() => store.block("claude", id, "tech")).toThrow();
   });
 
-  it("잡은 세션은 「AI가 하는 중」일 때만 붙는다", () => {
+  it("잡은 세션은 「AI 작업 중」일 때만 붙는다", () => {
     const id = store.createTask("author", { projectId, title: "1단계 만들기" });
     expect(() => store.block("claude", id, "external", "codex")).toThrow();
     store.block("claude", id, "ai_working", "codex");
@@ -152,7 +152,7 @@ describe("할 일", () => {
 });
 
 describe("예시 데이터", () => {
-  it("예시 파일이 들어가고 바깥 글 표시가 붙는다", () => {
+  it("예시 파일이 들어가고 외부 입력 표시가 붙는다", () => {
     const db = freshDb();
     seed(db, fileURLToPath(new URL("../examples/seed.json", import.meta.url)));
     const tasks = new Store(db).listTasks();
@@ -378,7 +378,9 @@ describe("프로젝트·마일스톤 저장소", () => {
     const another = store.createProject(who, "별개 프로젝트");
     store.createMilestone(who, another, "별개 목표", "2026-10-27T00:00:00Z");
     expect(store.listMilestones(p).map((m) => m.id)).toEqual([
-      ...[early1, early2].sort(),
+      // 같은 날짜면 만든 순서 (2026-11-16, 원장 마일스톤 순서)
+      early1,
+      early2,
       late,
       nil,
     ]);

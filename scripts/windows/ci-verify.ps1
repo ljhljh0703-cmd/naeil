@@ -1,5 +1,5 @@
 ﻿# 자동 검사(CI)용: 윈도우 러너에서 deploy.ps1 로 배포한 뒤, 상시 서버가 약속대로 움직이는지 실제로 본다.
-# 실제 작업판 컴퓨터에서는 돌리지 않는다 (끝에서 자동 실행을 지우고, 되살리기를 한다).
+# 실제 작업판 컴퓨터에서는 돌리지 않는다 (끝에서 자동 실행을 지우고, 복원를 한다).
 #   powershell -ExecutionPolicy Bypass -File scripts\windows\ci-verify.ps1
 . "$PSScriptRoot\common.ps1"
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -66,7 +66,7 @@ Check '복원 연습 통과' ((Test-Path $drill) -and (Get-Content $drill -Raw -
 $h4 = Get-Health
 Check '상태 확인 백업 칸 ok' ($h4 -match '"backup":"ok"') $h4
 
-# 4-1. 가져오기: 설정이 없으면 할 일 없이 0, 있으면 vault 원장을 넣고 오늘 한 장을 씀
+# 4-1. 가져오기: 설정이 없으면 할 일 없이 0, 있으면 vault 원장을 넣고 오늘 요약을 씀
 Start-ScheduledTask -TaskName $TaskImport
 $end = (Get-Date).AddSeconds(60)
 do { Start-Sleep -Seconds 2; $ii = Get-ScheduledTaskInfo -TaskName $TaskImport; $is = (Get-ScheduledTask -TaskName $TaskImport).State } while ((Get-Date) -lt $end -and $is -eq 'Running')
@@ -82,14 +82,14 @@ $end = (Get-Date).AddSeconds(60)
 do { Start-Sleep -Seconds 2; $ii = Get-ScheduledTaskInfo -TaskName $TaskImport; $is = (Get-ScheduledTask -TaskName $TaskImport).State } while ((Get-Date) -lt $end -and $is -eq 'Running')
 Check '가져오기 작업, 설정대로 결과 0' ($ii.LastTaskResult -eq 0) "결과 $($ii.LastTaskResult)"
 $sheet = Join-Path $vault 'naeil-today.md'
-Check '오늘 한 장에 가져온 일이 보임' ((Test-Path $sheet) -and ((Get-Content $sheet -Raw -Encoding UTF8) -match '윈도우 가져오기 시험')) ''
+Check '오늘 요약에 가져온 일이 보임' ((Test-Path $sheet) -and ((Get-Content $sheet -Raw -Encoding UTF8) -match '윈도우 가져오기 시험')) ''
 
 # 5. 다시 배포 → 판이 바뀌고 자료는 그대로
 $before = Get-CurrentTarget
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'deploy.ps1') -SkipBuild
 Check '다시 배포 성공' ($LASTEXITCODE -eq 0) "$LASTEXITCODE"
 $after = Get-CurrentTarget
-Check '판이 새것으로 바뀜' ($after -and $after -ne $before) "$before → $after"
+Check '릴리스가 새것으로 바뀜' ($after -and $after -ne $before) "$before → $after"
 $bk2 = @(Get-ChildItem (Join-Path $AppHome 'backups') -Filter 'naeil-*.db')
 Check '배포 전 백업이 하나 더 생김' ($bk2.Count -gt $bk.Count) "$($bk.Count) → $($bk2.Count)"
 
@@ -98,12 +98,12 @@ Check '배포 전 백업이 하나 더 생김' ($bk2.Count -gt $bk.Count) "$($bk
 Check '되돌리기 성공' ($LASTEXITCODE -eq 0) "$LASTEXITCODE"
 Check '이전 판으로 돌아감' ((Get-CurrentTarget) -eq $before) "$(Get-CurrentTarget)"
 
-# 7. 되살리기 (맥에서 가져온 백업처럼 앱 폴더 밖 파일로)
+# 7. 복원 (맥에서 가져온 백업처럼 앱 폴더 밖 파일로)
 $outside = Join-Path $env:RUNNER_TEMP 'from-mac.db'
 Copy-Item $bk2[-1].FullName $outside
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'restore.ps1') -From $outside
-Check '앱 폴더 밖 백업 파일로 되살리기' ($LASTEXITCODE -eq 0) "$LASTEXITCODE"
-Check '되살린 뒤 상태 확인 200' ($null -ne (Get-Health)) ''
+Check '앱 폴더 밖 백업 파일로 복원' ($LASTEXITCODE -eq 0) "$LASTEXITCODE"
+Check '복원한 뒤 상태 확인 200' ($null -ne (Get-Health)) ''
 Check '옮기기 전 자료를 옆 폴더에 남김' (@(Get-ChildItem (Join-Path $AppHome 'backups') -Directory -Filter 'before-restore-*').Count -ge 1) ''
 
 # 8. 상태 보기가 끝까지 돎

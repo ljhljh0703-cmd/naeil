@@ -1,6 +1,6 @@
-// 구운 판(dist) 연기 시험: 「배포한 그대로 켜지고, 자동 실행과 맞물려 움직이는가」만 본다.
+// 빌드 결과(dist) 스모크 테스트: 「배포한 그대로 켜지고, 자동 실행과 맞물려 움직이는가」만 본다.
 // 저장소 밖 빈 폴더에서 켜고, 자료 파일도 그 폴더에 따로 둔다. 실제 작업판 자료는 건드리지 않는다.
-//   npm run smoke   (= 굽기 + 이 파일)
+//   npm run smoke   (= 빌드 + 이 파일)
 //   배포 스크립트(scripts/macos/deploy.sh)도 새 판을 바꿔 끼우기 전에 이 파일을 그 판 안에서 돌린다.
 import { spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdtempSync, renameSync, rmSync, unlinkSync } from "node:fs";
@@ -8,6 +8,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { waitForHealth } from "./wait-health.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const entry = join(root, "dist", "server.js");
@@ -47,17 +48,14 @@ async function start(name, extraEnv = {}, { stdin = "ignore" } = {}) {
   const s = { name, child, base: `http://127.0.0.1:${port}`, dbPath, log: "" };
   child.stdout.on("data", (d) => (s.log += d));
   child.stderr.on("data", (d) => (s.log += d));
-  s.exited = new Promise((r) => child.once("exit", (code, signal) => r({ code, signal })));
+  s.exited = new Promise((r) => {
+    child.once("exit", (code, signal) => r({ code, signal }));
+    child.once("error", (error) => r({ code: null, signal: null, error: error.message }));
+  });
   servers.push(s);
-  for (let i = 0; i < 100; i++) {
-    if (child.exitCode !== null) return { ...s, health: null };
-    try {
-      return { ...s, health: await fetch(`${s.base}/health`) };
-    } catch {
-      await wait(100);
-    }
-  }
-  return { ...s, health: null };
+  const readiness = await waitForHealth(`${s.base}/health`, child);
+  console.log(`시작 확인 ${name}: ${readiness.elapsedMs}ms`);
+  return { ...s, ...readiness };
 }
 const exitWithin = (s, ms) => Promise.race([s.exited, wait(ms).then(() => null)]);
 // 윈도우는 끄라는 신호(SIGTERM)가 없고 열린 파일을 바꾸거나 지울 수 없다. 그 시험은 윈도우에서 건너뛴다
@@ -67,7 +65,7 @@ const skipped = [];
 try {
   // ── 1. 켜지고 기본이 도는가 ──
   const a = await start("basic");
-  check("저장소 밖 폴더에서 켜짐", a.health !== null, a.health ? "" : `꺼짐 (종료 코드 ${a.child.exitCode})`);
+  check("저장소 밖 폴더에서 켜짐", a.health !== null, a.detail);
   if (a.health) {
     const body = await a.health.json();
     check("상태 확인 200, 자료 읽힘", a.health.status === 200 && body.ok === true && body.checks?.db === "ok", JSON.stringify(body));
@@ -77,7 +75,7 @@ try {
     check("첫 주소가 화면을 엶", page.status === 200 && html.includes('id="root"'), `${page.status}`);
     const api = await fetch(`${a.base}/v1/projects`);
     const problem = await api.json();
-    check("명세서를 읽어 출입증 검사가 돎 (401)", api.status === 401 && typeof problem.type === "string", `${api.status}`);
+    check("명세서를 읽어 API 키 검사가 돎 (401)", api.status === 401 && typeof problem.type === "string", `${api.status}`);
     check("자료 파일이 정한 자리에 생김", existsSync(a.dbPath), a.dbPath);
     // 켜진 서버 옆에서 백업 명령 (매일 자동 실행이 부르는 그대로)
     const cliEnv = { ...process.env, NAEIL_HOST: "127.0.0.1", NAEIL_PORT: a.base.split(":").at(-1), NAEIL_DB: a.dbPath };
@@ -87,7 +85,7 @@ try {
     const after = await (await fetch(`${a.base}/health`)).json();
     check("상태 확인 백업 칸 ok", after.checks?.backup === "ok", JSON.stringify(after.checks));
     const refuse = spawnSync(process.execPath, [cli, "restore", "latest"], { cwd: work, env: cliEnv, encoding: "utf8" });
-    check("서버가 켜져 있으면 되살리기를 거절", refuse.status === 1 && refuse.stderr.includes("서버가 켜져 있음"), `${refuse.status} ${refuse.stderr.slice(-200)}`);
+    check("서버가 켜져 있으면 복원를 거절", refuse.status === 1 && refuse.stderr.includes("서버가 켜져 있음"), `${refuse.status} ${refuse.stderr.slice(-200)}`);
     if (WIN) {
       skipped.push("끄라는 신호(SIGTERM)에 정상 종료: 윈도우에는 그 신호가 없음 (아래 실행기 통로 시험이 대신)");
     } else {
@@ -104,7 +102,7 @@ try {
     sup.child.stdin.end();
     const end = await exitWithin(sup, 5000);
     check("실행기 통로가 닫히면 정상 종료(0), 포트를 붙잡고 남지 않음", end?.code === 0, JSON.stringify(end));
-  } else check("실행기 아래 시험용 서버가 켜짐", false);
+  } else check("실행기 아래 시험용 서버가 켜짐", false, sup.detail);
 
   // ── 2. 켜진 채 자료 파일이 백업본으로 바뀌면 스스로 꺼짐 ──
   const b = WIN ? null : await start("replaced", { NAEIL_SELF_CHECK_SECONDS: "0.2" });
@@ -134,7 +132,7 @@ try {
     check("지운 자리에 빈 파일을 새로 만들지 않음", !existsSync(c.dbPath));
   } else check("자료 파일 지움 시험용 서버가 켜짐", false);
 } finally {
-  for (const s of servers) if (s.child.exitCode === null && s.child.signalCode === null) s.child.kill("SIGKILL");
+  for (const s of servers) if (s.child.pid && s.child.exitCode === null && s.child.signalCode === null) s.child.kill("SIGKILL");
   await Promise.all(servers.map((s) => s.exited));
   rmSync(work, { recursive: true, force: true });
 }
@@ -145,4 +143,4 @@ if (results.length === 0 || results.some((r) => !r.pass)) {
   for (const s of servers) console.error(`\n[${s.name}] 서버 기록:\n${s.log.slice(-1500)}`);
   process.exit(1);
 }
-console.log(`\n구운 서버 연기 시험 ${results.length}건 통과`);
+console.log(`\n빌드 스모크 테스트 ${results.length}건 통과`);

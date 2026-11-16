@@ -81,7 +81,7 @@ export async function run({ page, ok, until, base, out }) {
   await p.screenshot({ path: `${out}/panel-full.png` });
   await p.locator(".detail.full button.icon").last().click();
 
-  // 카드 안 버튼은 카드 열기와 따로: 지금 할 것을 「내 결정 기다림」으로, 그 카드의 「정했음」
+  // 카드 안 버튼은 카드 열기와 따로: 지금 할 것을 「내 결정 대기」로, 그 카드의 「정했음」
   await p.locator(".hero button", { hasText: "내가 정할 게 있음" }).click();
   await p.waitForSelector("#decide-title + ul .card-action");
   await p.locator("#decide-title + ul .card-action").first().click();

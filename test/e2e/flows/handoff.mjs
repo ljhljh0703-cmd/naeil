@@ -6,7 +6,7 @@ export const fixture = data;
 export async function run({ page, ok, until, api, base, cli }) {
   const tasks = (await api("GET", "/v1/tasks?limit=200")).json.items;
   const t = tasks.find((x) => x.title === "이름 바꾸기");
-  // AI 세션이 묻는다 (claude 출입증 대신 같은 API, 묻는 쪽 이름은 출입증이 정함)
+  // AI 세션이 묻는다 (claude API 키 대신 같은 API, 묻는 쪽 이름은 API 키가 정함)
   const asked = await api("PUT", `/v1/tasks/${t.id}/decision`, {
     question: "이름 바꾸기를 목록에서도 할까",
     options: ["상세에서만", "목록에서도"],
@@ -40,7 +40,7 @@ export async function run({ page, ok, until, api, base, cli }) {
     "상세에 정한 것이 남음",
   );
 
-  // 어디까지 했나 한 줄 → 이어하기 복사
+  // 어디까지 했나 한 줄 → 인수인계 복사
   const note = p.locator(".detail").getByLabel("어디까지 했나");
   await note.fill("목록 쪽은 안 하기로, 상세만 남음");
   await note.locator("xpath=..").getByRole("button", { name: "저장" }).click();
@@ -52,11 +52,11 @@ export async function run({ page, ok, until, api, base, cli }) {
     ),
     "어디까지 했나 저장",
   );
-  await p.locator(".detail").getByRole("button", { name: "이어하기 복사" }).click();
+  await p.locator(".detail").getByRole("button", { name: "인수인계 복사" }).click();
   ok(await until(async () => (await p.locator(".info").count()) === 1), "복사했다는 알림");
   const copied = await p.evaluate(() => navigator.clipboard.readText());
   ok(
-    copied.startsWith("# 이어하기: 이름 바꾸기") &&
+    copied.startsWith("# 인수인계: 이름 바꾸기") &&
       copied.includes("어디까지 했나: 목록 쪽은 안 하기로"),
     "복사한 한 장에 목표, 어디까지",
   );
@@ -69,20 +69,20 @@ export async function run({ page, ok, until, api, base, cli }) {
     headers: { authorization: `Bearer ${claudeKey}`, "content-type": "application/json" },
     body: JSON.stringify({ enabled: false, reason: "한 장 모양 고치는 중" }),
   });
-  ok(off.status === 200, "AI 가 이유를 적고 스위치를 끔");
+  ok(off.status === 200, "AI 가 이유를 적고 기능을 끔");
   await p.reload();
   await p.waitForSelector(".hero");
   ok(
     (await p.locator(".notice").textContent()).includes(
-      "claude 가 이어하기 스위치를 껐습니다: 한 장 모양 고치는 중",
+      "claude 가 인수인계 문서 기능을 껐습니다: 한 장 모양 고치는 중",
     ),
-    "AI 가 끈 스위치가 오늘 화면 맨 위에 이유와 함께",
+    "AI 가 끈 기능이 오늘 화면 맨 위에 이유와 함께",
   );
   await p.locator(".item-card .card-link", { hasText: "이름 바꾸기" }).first().click();
   await p.waitForSelector(".detail #detail-title");
   ok(
-    (await p.locator(".detail").getByRole("button", { name: "이어하기 복사" }).count()) === 0,
-    "끄면 이어하기 버튼이 숨음",
+    (await p.locator(".detail").getByRole("button", { name: "인수인계 복사" }).count()) === 0,
+    "끄면 인수인계 복사 버튼이 숨음",
   );
   await p.keyboard.press("Escape");
   await p.locator(".notice").getByRole("button", { name: "다시 켜기" }).click();

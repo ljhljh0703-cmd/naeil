@@ -18,13 +18,13 @@ naeil API의 오류는 전부 한 가지 모양(`application/problem+json`, RFC 
 400. 입력이 명세서 규칙과 다름. 명세서에 없는 칸을 보냈거나, 번호 모양이 틀렸거나, 없는 프로젝트에 할 일을 만들려고 함.
 
 ## unauthorized
-401. `Authorization: Bearer <출입증>` 이 없거나 틀리거나 폐기됨. 응답 머리말 `WWW-Authenticate: Bearer`.
+401. `Authorization: Bearer <API 키>` 이 없거나 틀리거나 폐기됨. 응답 머리말 `WWW-Authenticate: Bearer`.
 
 ## forbidden
 403. 열 수 없는 파일 (화면 파일 밖).
 
 ## not-found
-404. 없거나 휴지통에 있음. 휴지통에 있는 할 일은 `POST /v1/tasks/{taskId}/revive` 로 되살린다.
+404. 없거나 휴지통에 있음. 휴지통에 있는 할 일은 `POST /v1/tasks/{taskId}/revive` 로 복원한다.
 
 ## method-not-allowed
 405. 이 주소에서 쓸 수 없는 방법.
@@ -48,7 +48,7 @@ naeil API의 오류는 전부 한 가지 모양(`application/problem+json`, RFC 
 422. 끝난 일에는 멈춘 이유를 붙이지 않는다.
 
 ## held-by-not-ai
-422. 잡은 세션(`heldBy`)은 「AI가 하는 중」(`ai_working`)일 때만.
+422. 잡은 세션(`heldBy`)은 「AI 작업 중」(`ai_working`)일 때만.
 
 ## server
 500. 서버 오류. 서버 기록을 확인한다.

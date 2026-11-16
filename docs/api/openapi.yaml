@@ -1,16 +1,16 @@
 openapi: 3.1.0
 info:
   title: naeil API
-  version: 0.1.1
+  version: 0.2.0
   summary: 내 일은 naeil에서
   description: |
     내일은내일(naeil) 할 일 API 명세서 v1 (작가 결정 4곳 반영 2026-10-25, 코드는 1-2단계).
 
     - 주소 앞에 버전 `/v1`
     - 시간은 전부 세계 표준시 ISO 8601 (`2026-10-25T05:00:00.000Z`)
-    - 지우기는 휴지통으로 (`DELETE` = 휴지통, 되살리기 따로)
+    - 지우기는 휴지통으로 (`DELETE` = 휴지통, 복원 따로)
     - 오류는 한 가지 모양 (`application/problem+json`)
-    - 누가: 도구별 출입증(비밀 키) 3장 + 세션 이름표 `X-Naeil-Session`
+    - 누가: 도구별 API 키(비밀 키) 3장 + 세션 이름표 `X-Naeil-Session`
     - 같은 요청 두 번: `Idempotency-Key` 로 한 번만 처리
     - 덮어쓰기: `If-Match` 를 보내면 검사 (선택)
     - 목록 나누기: 커서 (`cursor` · `nextCursor`)
@@ -175,14 +175,14 @@ paths:
     post:
       tags: [projects]
       operationId: reviveProject
-      summary: 프로젝트 되살리기 (같이 휴지통에 들어간 마일스톤과 할 일도 같이. 먼저 따로 버린 것은 그대로)
+      summary: 프로젝트 복원 (같이 휴지통에 들어간 마일스톤과 할 일도 같이. 먼저 따로 버린 것은 그대로)
       parameters:
         - $ref: "#/components/parameters/Session"
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "200":
-          description: 되살린 프로젝트
+          description: 복원한 프로젝트
           headers:
             ETag: { $ref: "#/components/headers/ETag" }
           content:
@@ -266,7 +266,7 @@ paths:
                 doneWhen:
                   type: [string, "null"]
                   maxLength: 500
-                  description: 이 마일스톤이 끝났다고 볼 기준 (이어하기 한 장의 목표)
+                  description: 이 마일스톤이 끝났다고 볼 기준 (인수인계 문서의 목표)
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "200":
@@ -426,7 +426,7 @@ paths:
                 heldBy:
                   type: string
                   pattern: "^[a-z][a-z0-9-]{0,31}$"
-                  description: 「AI가 하는 중」(ai_working)일 때만. 예 claude, codex
+                  description: 「AI 작업 중」(ai_working)일 때만. 예 claude, codex
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -463,20 +463,20 @@ paths:
     post:
       tags: [tasks]
       operationId: reviveTask
-      summary: 되살리기 (휴지통에서 꺼내거나, 끝난 일을 다시 할 일로)
+      summary: 복원 (휴지통에서 꺼내거나, 끝난 일을 다시 할 일로)
       parameters:
         - $ref: "#/components/parameters/Session"
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "200":
-          description: 되살린 할 일
+          description: 복원한 할 일
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Task" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422":
-          description: 규칙 위반 (프로젝트가 휴지통에 있음. 프로젝트를 되살리면 같이 돌아옴)
+          description: 규칙 위반 (프로젝트가 휴지통에 있음. 프로젝트를 복원하면 같이 돌아옴)
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -494,7 +494,7 @@ paths:
           schema: { type: string, maxLength: 32 }
         - name: actorKind
           in: query
-          description: 어떤 종류의 출입증이 바꾼 것만 (human 사람, ai AI 세션, ci 자동 검사)
+          description: 어떤 종류의 API 키가 바꾼 것만 (human 사람, ai AI 세션, ci CI)
           schema: { $ref: "#/components/schemas/KeyKind" }
         - name: entity
           in: query
@@ -554,7 +554,7 @@ paths:
     put:
       tags: [today]
       operationId: setToday
-      summary: 그날의 「오늘은 이거」 고정과 건너뛰기를 바꾼다
+      summary: 그날의 「오늘 할 일」 고정과 건너뛰기를 바꾼다
       requestBody:
         required: true
         content:
@@ -582,7 +582,7 @@ paths:
     get:
       tags: [decisions]
       operationId: listDecisions
-      summary: 결정함 (열린 질문 먼저, 그다음 최근 답)
+      summary: 결정 대기함 (열린 질문 먼저, 그다음 최근 답)
       parameters:
         - name: open
           in: query
@@ -621,7 +621,7 @@ paths:
     put:
       tags: [decisions]
       operationId: askDecision
-      summary: 작가에게 정할 것을 묻는다 (할 일은 「내 결정 기다림」으로 멈춤. 열린 질문이 있으면 고침)
+      summary: 작가에게 정할 것을 묻는다 (할 일은 「내 결정 대기」로 멈춤. 열린 질문이 있으면 고침)
       parameters:
         - $ref: "#/components/parameters/Session"
       requestBody:
@@ -696,7 +696,7 @@ paths:
     get:
       tags: [handoff]
       operationId: getHandoff
-      summary: 이어하기 한 장 (목표, 남은 일, 바뀐 것, 근거, 막힌 것). 셋 중 하나만
+      summary: 인수인계 문서 (목표, 남은 일, 바뀐 것, 근거, 막힌 것). 셋 중 하나만
       parameters:
         - name: projectId
           in: query
@@ -722,7 +722,7 @@ paths:
                   text: { type: string }
         "404": { $ref: "#/components/responses/NotFound" }
         "422":
-          description: 이어하기 스위치가 꺼져 있음
+          description: 인수인계 문서 기능가 꺼져 있음
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -768,12 +768,12 @@ paths:
     get:
       tags: [settings]
       operationId: listSettings
-      summary: 기능 스위치 (처음에는 모두 켜짐)
+      summary: 기능 기능 설정 (처음에는 모두 켜짐)
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "200":
-          description: 스위치 목록
+          description: 기능 설정 목록
           content:
             application/json:
               schema:
@@ -791,7 +791,7 @@ paths:
     put:
       tags: [settings]
       operationId: setSetting
-      summary: 스위치 켜고 끄기. 화면만 숨기고 경계 규칙은 늘 적용. AI 는 이유 한 줄 필수
+      summary: 기능 설정 켜고 끄기. 화면만 숨기고 경계 규칙은 늘 적용. AI 는 이유 한 줄 필수
       requestBody:
         required: true
         content:
@@ -807,7 +807,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "200":
-          description: 바뀐 스위치
+          description: 바뀐 기능 설정
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Setting" }
@@ -824,12 +824,12 @@ components:
       type: http
       scheme: bearer
       description: |
-        도구별 출입증 (작가 결정 2026-10-25). `Authorization: Bearer <키>`.
+        도구별 API 키 (작가 결정 2026-10-25). `Authorization: Bearer <키>`.
         - 도구마다 1장: author(화면) · claude · codex. 세션마다 만들지 않는다
-        - 종류 3가지 (M1-7): human 사람, ai AI 세션, ci 자동 검사. 변경 기록에 그때 종류가 남는다 (actorKind)
+        - 종류 3가지 (M1-7): human 사람, ai AI 세션, ci CI. 변경 기록에 그때 종류가 남는다 (actorKind)
         - 서버는 키를 보고 「누가」를 스스로 정한다. 요청이 밝힌 이름은 믿지 않는다
         - 키는 만들 때 한 번만 보이고, 서버에는 잠근 값(해시)만 저장
-        - 명령 두 개로 관리: 새 출입증 만들기 · 출입증 폐기
+        - 명령 두 개로 관리: 새 API 키 만들기 · API 키 폐기
         - 키는 저장소에 올리지 않는다 (각 도구 설정 파일, 올리지 않는 목록에 포함)
   parameters:
     ProjectId:
@@ -852,7 +852,7 @@ components:
       in: header
       required: false
       description: |
-        세션 이름표 (예 `session-3`). 출입증으로 정해진 도구 안에서 몇 번째 세션인지 스스로 밝힌다.
+        세션 이름표 (예 `session-3`). API 키로 정해진 도구 안에서 몇 번째 세션인지 스스로 밝힌다.
         변경 기록에 「claude · session-3」처럼 남는다. 검사는 모양만 한다 (도구 이름은 키가 정함).
       schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,31}$" }
     IdempotencyKey:
@@ -863,7 +863,7 @@ components:
         같은 요청을 다시 보내도 한 번만 만들어지게 하는 열쇠 (작가 결정: 지금 넣기).
         - 같은 열쇠 + 같은 내용 → 처음 응답을 그대로 다시 돌려줌 (새로 만들지 않음)
         - 같은 열쇠 + 다른 내용 → 422
-        - 열쇠는 24시간 보관 후 지움. 출입증마다 따로 센다
+        - 열쇠는 24시간 보관 후 지움. API 키마다 따로 센다
       schema: { type: string, minLength: 8, maxLength: 64 }
     IfMatch:
       name: If-Match
@@ -959,7 +959,7 @@ components:
     BlockedReason:
       type: string
       enum: [my_decision, ai_working, external, tech]
-      description: 멈춘 이유 4개 (내 결정 기다림 · AI가 하는 중 · 바깥 답 기다림 · 기술 문제)
+      description: 멈춘 이유 4개 (내 결정 대기 · AI 작업 중 · 외부 응답 대기 · 기술 문제)
     Timestamps:
       type: object
       required: [createdAt, updatedAt]
@@ -1055,9 +1055,9 @@ components:
       properties:
         id: { type: integer }
         at: { type: string, format: date-time }
-        actor: { type: string, description: "출입증이 정한 도구 이름 (author, claude, codex)" }
+        actor: { type: string, description: "API 키가 정한 도구 이름 (author, claude, codex)" }
         actorKind:
-          description: 그때 출입증 종류. 종류 칸이 생기기 전 기록이나 명령줄에서 바꾼 것은 null
+          description: 그때 API 키 종류. 종류 칸이 생기기 전 기록이나 명령줄에서 바꾼 것은 null
           anyOf:
             - { $ref: "#/components/schemas/KeyKind" }
             - { type: "null" }
@@ -1100,7 +1100,7 @@ components:
     KeyKind:
       type: string
       enum: [human, ai, ci]
-      description: 출입증 종류. human 사람, ai AI 세션, ci 자동 검사
+      description: API 키 종류. human 사람, ai AI 세션, ci CI
     Today:
       type: object
       required: [day, now, pinnedTaskId, skipped, waitingOnMe, dueSoon]
@@ -1116,11 +1116,15 @@ components:
         waitingOnMe: { type: array, items: { $ref: "#/components/schemas/Task" } }
         dueSoon: { type: array, items: { $ref: "#/components/schemas/Task" } }
         decisions:
-          description: 열린 질문 (결정함)
+          description: 열린 질문 (결정 대기함)
           type: array
           items: { $ref: "#/components/schemas/Decision" }
+        laterCount:
+          description: 뒤 마일스톤(다음 단계)이라 오늘 목록에서 뺀 열린 할 일 수. 마일스톤 화면에는 다 보임
+          type: integer
+          minimum: 0
         notices:
-          description: AI 가 끈 스위치. 다시 켤 때까지 오늘 화면 맨 위에
+          description: AI 가 끈 기능 설정. 다시 켤 때까지 오늘 화면 맨 위에
           type: array
           items:
             type: object

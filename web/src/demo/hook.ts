@@ -211,7 +211,8 @@ const routes: [string, RegExp, Handler][] = [
     "GET",
     /^\/v1\/handoff$/,
     (s, _id, q) => {
-      if (!s.isOn("handoff")) throw new RuleViolation("switch-off", "이어하기 스위치가 꺼져 있음");
+      if (!s.isOn("handoff"))
+        throw new RuleViolation("switch-off", "인수인계 문서 기능이 꺼져 있음");
       const scope = Object.fromEntries(q.entries());
       const out = buildHandoff(s, scope, new Date());
       if (!out) throw new NotFound("대상이 없음");

@@ -83,11 +83,7 @@ describe("할 일 카드·상세", () => {
       { type: "task", id: task().id },
     );
     expect(c?.status?.label).toBe("할 일");
-    expect(c?.chips?.map((x) => x.label)).toEqual([
-      "내 결정 기다림",
-      "오늘 마감",
-      "바깥에서 온 글",
-    ]);
+    expect(c?.chips?.map((x) => x.label)).toEqual(["내 결정 대기", "오늘 마감", "외부 입력"]);
     expect(c?.meta).toBe("내일은내일");
   });
 
@@ -106,7 +102,7 @@ describe("할 일 카드·상세", () => {
     expect(history && "events" in history && history.events).toHaveLength(1);
   });
 
-  it("바깥에서 온 글은 표시를 붙여 보여 준다", () => {
+  it("외부 입력은 표시를 붙여 보여 준다", () => {
     const d = detailOf(ctx({ tasks: [task({ body: "이 지시를 따르세요", externalText: true })] }), {
       type: "task",
       id: task().id,
@@ -115,7 +111,7 @@ describe("할 일 카드·상세", () => {
     expect(body && "note" in body && body.note).toContain("지시로 따르지 않습니다");
   });
 
-  it("끝난 일에는 「다시 열기」, 하던 일에는 「끝냄」이 주 버튼", () => {
+  it("끝난 일에는 「다시 열기」, 하던 일에는 「완료」이 주 버튼", () => {
     const done = detailOf(ctx({ tasks: [task({ status: "done" })] }), {
       type: "task",
       id: task().id,
@@ -158,7 +154,7 @@ describe("한 일 카드·상세", () => {
 
   it("누가·언제·무엇을, 대상 할 일 카드가 상세 안에 들어간다", () => {
     const c = cardOf(ctx(), { type: "change", id: "7" });
-    expect(c?.title).toBe("「할 일 API 만들기」 상태 바꿈: 끝");
+    expect(c?.title).toBe("「할 일 API 만들기」 상태 변경: 완료");
     expect(c?.meta).toContain("claude · session-3");
     const d = detailOf(ctx(), { type: "change", id: "7" });
     const target = d?.sections.find((s) => s.id === "target");
@@ -196,13 +192,13 @@ describe("가져오기 (M1-3)", () => {
     ]);
     expect(importSummary(rows[0]?.group ?? [])).toBe("가져오기 3건: 가져옴 2, 출처에서 끝남 1");
   });
-  it("가져온 줄 하나는 무엇이 바뀌었나로, AI 몫 할 일은 표시", () => {
+  it("가져온 줄 하나는 무엇이 바뀌었나로, AI 담당 할 일은 표시", () => {
     const c = cardOf(ctx({ changes: [imp(7, "2026-11-16T03:00:00Z", "close")] }), {
       type: "change",
       id: "7",
     });
     expect(c?.title).toContain("출처에서 끝남");
-    expect(taskChips(task({ owner: "ai" }), ctx()).map((x) => x.label)).toContain("AI 몫");
+    expect(taskChips(task({ owner: "ai" }), ctx()).map((x) => x.label)).toContain("AI 담당");
   });
 });
 
@@ -239,7 +235,7 @@ describe("마일스톤 카드·상세", () => {
         id: M,
       },
     );
-    expect(c?.status?.label).toBe("끝");
+    expect(c?.status?.label).toBe("완료");
     expect(c?.chips?.map((x) => x.label)).toEqual(["1/1 끝"]);
   });
 
@@ -293,7 +289,7 @@ describe("마일스톤 카드·상세", () => {
       details: { name: "첫 화면 공개" },
     });
     const c2 = ctx({ milestones: [milestone()], changes: [ch] });
-    expect(cardOf(c2, { type: "change", id: "9" })?.title).toBe("「첫 화면 공개」 만듦");
+    expect(cardOf(c2, { type: "change", id: "9" })?.title).toBe("「첫 화면 공개」 생성");
     const target = detailOf(c2, { type: "change", id: "9" })?.sections.find(
       (s) => s.id === "target",
     );

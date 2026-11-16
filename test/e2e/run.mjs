@@ -1,7 +1,7 @@
 // 브라우저 흐름 시험. 구운 판(dist)을 흐름마다 새 빈 자료로 켜고, 실제 브라우저로 눌러 본다.
 //   npm run e2e            (= 굽기 + 이 파일)
 //   node test/e2e/run.mjs basics board   (흐름 골라 돌리기, 굽기는 먼저)
-// 캡처와 결과는 test/e2e/out/ (저장소에 올리지 않음). 출입증은 시험 자료 안에서만 만들고 화면에 찍지 않는다.
+// 캡처와 결과는 test/e2e/out/ (저장소에 올리지 않음). API 키는 시험 자료 안에서만 만들고 화면에 찍지 않는다.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -43,14 +43,14 @@ async function startServer(name) {
     NAEIL_DB: join(work, "naeil.db"),
     NAEIL_SELF_CHECK_SECONDS: "0",
   };
-  // 시험용 출입증 (시험 자료 안에서만)
+  // 시험용 API 키 (시험 자료 안에서만)
   const k = spawnSync(process.execPath, [keyCli, "new", "e2e", "--kind", "human"], {
     cwd: work,
     env,
     encoding: "utf8",
   });
   const key = k.stdout.match(/nk_[A-Za-z0-9_-]+/)?.[0];
-  if (!key) throw new Error(`시험용 출입증을 못 만듦 (${k.status})`);
+  if (!key) throw new Error(`시험용 API 키를 못 만듦 (${k.status})`);
   const child = spawn(process.execPath, [entry], {
     cwd: work,
     env,

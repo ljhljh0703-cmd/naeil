@@ -8,9 +8,9 @@
 # 하는 일 (순서대로, 한 단계라도 실패하면 멈춘다. 맥 scripts/macos/deploy.sh 와 같은 순서)
 #   0) 관리자 확인   로그인 전에도 켜지게 등록하려면 한 번 필요
 #   1) Node 확인     node 가 .node-version 이상인지
-#   2) 굽기          npm run build (서버와 화면)
-#   3) 판 만들기     실행에 필요한 것만 %LOCALAPPDATA%\naeil\releases\<판> 에 복사
-#   4) 판 시험       새 판을 빈 폴더, 빈 자료로 켜 연기 시험 (실제 자료는 건드리지 않음)
+#   2) 빌드          npm run build (서버와 화면)
+#   3) 릴리스 만들기     실행에 필요한 것만 %LOCALAPPDATA%\naeil\releases\<릴리스> 에 복사
+#   4) 스모크 테스트     새 릴리스를 빈 폴더, 빈 자료로 켜 스모크 테스트 (실제 자료는 건드리지 않음)
 #   5) 배포 전 백업  자료 파일이 있으면 새 판의 백업 명령으로 백업과 복원 연습. 실패하면 바꿔 끼우지 않음
 #   6) 바꿔 끼우기   current 를 새 판으로 (지금 켜진 서버는 끄고)
 #   7) 자동 실행     naeil-server (컴퓨터 켜질 때, 실행기가 죽으면 다시 켬)
@@ -42,17 +42,17 @@ if (-not $Node -or -not (Test-Path $Node)) { Die 'node 를 못 찾음. https://n
 if ($LASTEXITCODE -ne 0) { Die 'Node 판이 맞지 않음' }
 Write-Host "node: $Node"
 
-Say '2) 굽기'
+Say '2) 빌드'
 if ($SkipBuild) {
   Write-Host '건너뜀'
 } else {
   if (-not (Test-Path node_modules)) { Die 'node_modules 가 없음. npm ci 먼저' }
   & npm run build
-  if ($LASTEXITCODE -ne 0) { Die '굽기 실패' }
+  if ($LASTEXITCODE -ne 0) { Die '빌드 실패' }
 }
 if (-not (Test-Path dist\server.js) -or -not (Test-Path web\dist\index.html)) { Die '구운 결과가 없음 (dist\server.js, web\dist\index.html)' }
 
-Say '3) 판 만들기'
+Say '3) 릴리스 만들기'
 $sha = Invoke-Quiet { git rev-parse --short HEAD }
 if (-not $sha) { $sha = 'nogit' }
 Invoke-Quiet { git diff --quiet HEAD } | Out-Null
@@ -66,7 +66,7 @@ Copy-Item -Recurse dist, migrations -Destination $Rel
 New-Item -ItemType Directory -Force -Path (Join-Path $Rel 'docs\api'), (Join-Path $Rel 'web'), (Join-Path $Rel 'scripts') | Out-Null
 Copy-Item docs\api\openapi.yaml -Destination (Join-Path $Rel 'docs\api')
 Copy-Item -Recurse web\dist -Destination (Join-Path $Rel 'web\dist')
-Copy-Item scripts\smoke-dist.mjs, scripts\service.mjs, scripts\node-ok.mjs -Destination (Join-Path $Rel 'scripts')
+Copy-Item scripts\smoke-dist.mjs, scripts\wait-health.mjs, scripts\service.mjs, scripts\node-ok.mjs -Destination (Join-Path $Rel 'scripts')
 # 꾸러미는 인터넷에서 다시 받지 않고 복사한 뒤 개발용만 뺀다 (사내망, 폐쇄망에서도 같은 방법)
 # robocopy 는 긴 경로도 복사한다. 8 미만이 성공
 & robocopy node_modules (Join-Path $Rel 'node_modules') /E /NFL /NDL /NJH /NJS /NP | Out-Null
@@ -77,13 +77,13 @@ $pruned = $LASTEXITCODE
 Pop-Location
 if ($pruned -ne 0) { Die '개발용 꾸러미 빼기 실패' }
 Set-Content -Path (Join-Path $Rel 'RELEASE') -Value $RelId -Encoding ASCII
-Write-Host "판: $RelId"
+Write-Host "릴리스: $RelId"
 
-Say '4) 판 시험 (빈 자료, 빈 폴더)'
+Say '4) 스모크 테스트 (빈 자료, 빈 폴더)'
 & $Node (Join-Path $Rel 'scripts\smoke-dist.mjs')
 if ($LASTEXITCODE -ne 0) {
   & cmd /c rmdir /s /q "$Rel"
-  Die '새 판 연기 시험 실패. 판을 지우고 멈춤 (지금 켜진 판은 그대로)'
+  Die '새 릴리스 스모크 테스트 실패. 새 릴리스를 지우고 멈춤 (지금 켜진 릴리스는 그대로)'
 }
 
 Say '5) 배포 전 백업'
@@ -102,7 +102,7 @@ Say '6) 바꿔 끼우기'
 $Prev = Get-CurrentTarget
 Stop-Naeil
 Set-Current $Rel
-if ($Prev) { Write-Host ("지금 판: {0} (이전: {1})" -f $RelId, (Split-Path $Prev -Leaf)) } else { Write-Host "지금 판: $RelId" }
+if ($Prev) { Write-Host ("지금 릴리스: {0} (이전: {1})" -f $RelId, (Split-Path $Prev -Leaf)) } else { Write-Host "지금 릴리스: $RelId" }
 
 Say '7) 자동 실행 설정'
 # 실행기 설정. node 가 읽으니 머리표 없는 UTF-8 로
@@ -121,7 +121,7 @@ $backupSet = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGo
 $backupAct = New-ScheduledTaskAction -Execute $Node -Argument ('"{0}" backup "{1}"' -f $Svc, $AppHome) -WorkingDirectory $AppHome
 Register-ScheduledTask -TaskName $TaskBackup -Description 'naeil 매일 백업 (scripts/windows/deploy.ps1 이 등록)' `
   -Action $backupAct -Trigger (New-ScheduledTaskTrigger -Daily -At '04:17') -Principal $principal -Settings $backupSet -Force | Out-Null
-# 가져오기: 한 시간마다 (vault 받는 폴더 처리, 출처 가져오기, 오늘 한 장). 설정이 없으면 할 일 없이 끝남
+# 가져오기: 한 시간마다 (vault 요청함 처리, 출처 가져오기, 오늘 요약). 설정이 없으면 할 일 없이 끝남
 $importSet = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
   -ExecutionTimeLimit (New-TimeSpan -Minutes 15) -MultipleInstances IgnoreNew
 $importAct = New-ScheduledTaskAction -Execute $Node -Argument ('"{0}" import "{1}"' -f $Svc, $AppHome) -WorkingDirectory $AppHome

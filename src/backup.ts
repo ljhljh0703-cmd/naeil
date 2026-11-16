@@ -1,6 +1,6 @@
 // 백업, 복원 연습, 복원.
 // - 백업: 켜진 서버가 쓰는 중에도 SQLite 백업 기능으로 한 순간의 모습을 통째로 뜬다(곁 파일 내용 포함)
-// - 복원 연습: 뜬 백업을 임시 폴더에 되살려 실제로 열어 보고, 숫자가 맞는지, 폐기한 출입증이 막혀 있는지 본다.
+// - 복원 연습: 뜬 백업을 임시 폴더에 되살려 실제로 열어 보고, 숫자가 맞는지, 폐기한 API 키가 막혀 있는지 본다.
 //   실제 자료 파일은 건드리지 않는다
 // - 복원: 서버를 끈 상태에서만. 지금 자료는 지우지 않고 옆 폴더로 옮겨 둔다
 import { createHash, randomUUID } from "node:crypto";
@@ -147,15 +147,15 @@ export async function drill(backupFile: string, ledgerPath: string): Promise<Dri
           ).n > 0,
       );
       check(
-        "폐기 명부를 적용하면 폐기한 출입증이 모두 막힘",
+        "폐기 키 목록을 적용하면 폐기한 API 키가 모두 막힘",
         alive.length === 0,
         `명부 ${ledger.length}건, 살아 남은 것 ${alive.map((r) => r.name).join(", ") || "없음"}`,
       );
 
-      // 앱으로 열어 상태 확인과 목록 한 번 (임시 출입증은 임시 사본에만 만들고 버림)
+      // 앱으로 열어 상태 확인과 목록 한 번 (임시 API 키는 임시 사본에만 만들고 버림)
       const app = buildApp({ db, dbPath: restored });
       const health = await app.inject({ method: "GET", url: "/health" });
-      check("되살린 자료로 상태 확인 200", health.statusCode === 200, health.body);
+      check("복원한 자료로 상태 확인 200", health.statusCode === 200, health.body);
       const temp = `nk_drill_${randomUUID()}`;
       db.prepare(
         "INSERT INTO api_keys (id, workspace_id, name, key_hash, created_at) VALUES (?, 'me', ?, ?, ?)",
@@ -172,7 +172,7 @@ export async function drill(backupFile: string, ledgerPath: string): Promise<Dri
       });
       const n = list.statusCode === 200 ? (list.json() as { items: unknown[] }).items.length : -1;
       check(
-        "되살린 자료로 프로젝트 목록이 열리고 수가 맞음",
+        "복원한 자료로 프로젝트 목록이 열리고 수가 맞음",
         n === facts.counts.projects,
         `${list.statusCode}, ${n}개`,
       );
@@ -200,7 +200,7 @@ export function writeDrillResult(dir: string, result: DrillResult): void {
 
 // 복원: 서버가 꺼진 상태에서만 부른다.
 // 순서 (11-10 맥 확인에서 Codex 가 짚은 「중간에 실패하면 원래 자료로 안 돌아옴」을 막는 순서)
-//   1) 준비: 백업을 옆 임시 파일로 되살려 표 구조 올리기, 폐기 명부 적용, 무결성까지 끝낸다. 여기서 실패하면 지금 자료는 손대지 않은 그대로
+//   1) 준비: 백업을 옆 임시 파일로 되살려 표 구조 올리기, 폐기 키 목록 적용, 무결성까지 끝낸다. 여기서 실패하면 지금 자료는 손대지 않은 그대로
 //   2) 바꿔 끼우기: 지금 자료(곁 파일 포함)를 before-restore 폴더로 옮기고 준비한 파일을 제자리에 놓는다.
 //      여기서 실패하면 옮긴 원래 자료를 제자리로 되돌린 뒤 실패를 알린다
 // inject 는 시험에서 단계마다 일부러 실패를 넣는 자리
@@ -234,7 +234,7 @@ export async function restore(
     try {
       reapplied = syncRevocations(db, ledgerPath).reapplied;
       const after = db.pragma("integrity_check", { simple: true });
-      if (after !== "ok") throw new Error(`되살린 자료가 깨져 있음: ${after}`);
+      if (after !== "ok") throw new Error(`복원한 자료가 깨져 있음: ${after}`);
       db.pragma("wal_checkpoint(TRUNCATE)");
     } finally {
       db.close();
@@ -269,7 +269,7 @@ export async function restore(
       if (existsSync(from)) renameSync(from, f);
     }
     clean(staging);
-    throw new Error(`되살리기 바꿔 끼우기 실패, 원래 자료로 되돌림: ${(err as Error).message}`);
+    throw new Error(`복원 교체 실패, 원래 자료로 되돌림: ${(err as Error).message}`);
   }
   return { movedTo, reapplied };
 }

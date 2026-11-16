@@ -57,10 +57,10 @@ export async function run({ page, ok, until, api, base, out }) {
   await p.waitForSelector(".trash-bin");
   ok((await p.locator(".trash-bin li").count()) === 1, "새로고침해도 휴지통에 그대로");
 
-  await p.locator(".trash-bin").getByRole("button", { name: "되살리기" }).click();
+  await p.locator(".trash-bin").getByRole("button", { name: "되돌리기" }).click();
   ok(
     await until(async () => (await p.locator("#board-title").textContent()) === "내일은내일"),
-    "되살리면 그 프로젝트가 열림",
+    "되돌리면 그 프로젝트가 열림",
   );
   ok((await p.locator(".ms").count()) === 4, "마일스톤도 같이 돌아옴");
   ok((await p.locator(".trash-bin").count()) === 0, "휴지통이 다시 빔");

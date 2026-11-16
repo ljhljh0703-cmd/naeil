@@ -1,4 +1,4 @@
-// 화면 → 서버. 화면은 「author」 출입증으로 부른다.
+// 화면 → 서버. 화면은 「author」 API 키로 부른다.
 
 import { demoCall, isDemo } from "./demo-hook.js";
 import { newKey } from "./ids.js";
@@ -56,7 +56,7 @@ export type Setting = {
   changedAt: string | null;
 };
 
-// 날짜별 사용 기록 (M1-5). 처음 연 시각은 사람 출입증의 그날 첫 요청
+// 날짜별 사용 기록 (M1-5). 처음 연 시각은 사람 API 키의 그날 첫 요청
 export type UsageDay = {
   day: string;
   firstOpenedAt: string | null;
@@ -90,7 +90,7 @@ export type Change = {
 const KEY_STORE = "naeil.key";
 
 export function getKey(): string | null {
-  // 시연판은 출입증 없이 바로 열림
+  // 시연판은 API 키 없이 바로 열림
   if (isDemo) return "demo";
   try {
     return localStorage.getItem(KEY_STORE);
@@ -177,6 +177,7 @@ export type Today = {
   dueSoon: ApiTask[];
   decisions?: Decision[];
   notices?: Notice[];
+  laterCount?: number;
 };
 
 export const api = {

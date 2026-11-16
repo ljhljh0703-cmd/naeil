@@ -3,12 +3,12 @@
 ## 켜는 법
 | 명령 | 언제 |
 |---|---|
-| `npm start` | 평소. 서버와 화면을 굽고 구운 판(`node dist/server.js`)으로 켠다 |
+| `npm start` | 평소. 서버와 화면을 빌드하고 빌드한 버전(`node dist/server.js`)으로 켠다 |
 | `npm run serve` | 굽지 않고 바로 켜 볼 때 (개발용) |
 | `npm run dev` | 코드를 고치면서 (바꾸면 다시 켜짐) |
-| `npm run smoke` | 구운 판이 저장소 밖 폴더에서도 켜지는지 확인. 실제 자료는 건드리지 않음 |
+| `npm run smoke` | 빌드한 버전이 저장소 밖 폴더에서도 켜지는지 확인. 실제 자료는 건드리지 않음 |
 
-구운 판은 어느 폴더에서 켜도 같은 파일을 쓴다.
+빌드한 버전은 어느 폴더에서 켜도 같은 파일을 쓴다.
 - 설정: 저장소 뿌리의 `.env`. 이미 있는 환경 변수가 먼저다 (자동 실행 설정에 적은 값이 `.env` 보다 우선)
 - 표 구조 파일, 명세서, 화면 파일: 저장소 뿌리 기준
 
@@ -19,7 +19,7 @@ npm ci
 npm run deploy:mac        # = bash scripts/macos/deploy.sh
 bash scripts/macos/status.sh
 ```
-배포 스크립트는 저장소에서 굽고, 실행에 필요한 것만 「라이브러리/Application Support/naeil/releases/<판>」 에 복사한 뒤 `current` 를 그 판으로 바꾼다.
+배포 스크립트는 저장소에서 빌드하고, 실행에 필요한 것만 「라이브러리/Application Support/naeil/releases/<판>」 에 복사한 뒤 `current` 를 그 판으로 바꾼다.
 저장소가 다운로드, 문서, 데스크탑 폴더 안에 있으면 맥이 자동 실행 프로그램의 접근을 막기 때문에, 서버는 저장소가 아닌 이 복사본에서 돈다.
 저장소에서 코드를 고치거나 AI 세션이 작업해도 켜진 서버는 다음 배포 전까지 그대로다.
 
@@ -35,16 +35,16 @@ bash scripts/macos/status.sh
 |---|---|
 | `bash scripts/macos/status.sh` | 판, 자료 파일, 등록 상태, 다시 켜진 횟수, 상태 확인 답 |
 | `bash scripts/macos/rollback.sh` | 바로 전 판으로 되돌림 (자료 파일은 그대로) |
-| `bash scripts/macos/restore.sh <latest\|파일>` | 백업에서 되살리기 (아래 「백업과 되살리기」) |
+| `bash scripts/macos/restore.sh <latest\|파일>` | 백업에서 복원 (아래 「백업과 복원」) |
 | `bash scripts/macos/uninstall.sh` | 자동 실행(서버, 매일 백업) 해제. 판, 자료 파일, 백업은 남김 |
 
-- 새 판은 바꿔 끼우기 전에 그 판 안에서 연기 시험을 돌린다. 실패하면 지금 판은 그대로 둔다
+- 새 판은 바꿔 끼우기 전에 그 판 안에서 스모크 테스트을 돌린다. 실패하면 지금 판은 그대로 둔다
 - 바꿔 끼운 뒤 20초 안에 상태 확인이 200 이 안 되면 이전 판으로 되돌리고 실패로 끝난다
 - 판은 셋만 남긴다
 - 처음 배포할 때 자료 파일이 없고 저장소에 예전 `data/naeil.db` 가 있으면 SQLite 백업으로 「복사」한다. 원본은 그대로
 - 자동 실행 설정에는 node 절대경로를 적는다(자동 실행은 셸의 PATH 를 모른다). node 를 바꾸거나 올렸으면 다시 배포한다
 - 기록: `~/Library/Logs/naeil/server.log`, `server.err.log`
-- 출입증은 배포본 자료 파일에 만든다: `NAEIL_DB="$HOME/Library/Application Support/naeil/naeil.db" npm run key -- new author` (예전 자료를 복사했다면 그 안의 출입증이 그대로 통함)
+- API 키는 배포본 자료 파일에 만든다: `NAEIL_DB="$HOME/Library/Application Support/naeil/naeil.db" npm run key -- new author` (예전 자료를 복사했다면 그 안의 API 키가 그대로 통함)
 - 배포해 둔 동안 저장소에서 `npm start` 를 하면 같은 3700 포트를 두고 부딪힌다. 개발할 때는 `NAEIL_PORT=3701 npm run serve` 처럼 다른 포트로
 
 ## 윈도우에서 늘 켜 두기 (작업판 서버 컴퓨터)
@@ -58,7 +58,7 @@ npm ci
 npm run deploy:windows    # = powershell -ExecutionPolicy Bypass -File scripts\windows\deploy.ps1
 powershell -ExecutionPolicy Bypass -File scripts\windows\status.ps1
 ```
-맥과 같은 순서로 배포한다: 굽기, 실행에 필요한 것만 `%LOCALAPPDATA%\naeil\releases\<판>` 에 복사, 그 판으로 연기 시험, 배포 전 백업과 복원 연습, `current` 바꿔 끼우기, 상태 확인, 안 되면 이전 판.
+맥과 같은 순서로 배포한다: 빌드, 실행에 필요한 것만 `%LOCALAPPDATA%\naeil\releases\<판>` 에 복사, 그 판으로 스모크 테스트, 배포 전 백업과 복원 연습, `current` 바꿔 끼우기, 상태 확인, 안 되면 이전 판.
 
 | 상황 | 자동 실행이 하는 일 |
 |---|---|
@@ -72,15 +72,15 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\status.ps1
 |---|---|
 | `scripts\windows\status.ps1` | 판, 자료 파일, 작업 상태, 다시 켠 횟수, 상태 확인 답, 백업, 잠자기 설정, 폰 주소 |
 | `scripts\windows\rollback.ps1` | 바로 전 판으로 되돌림 (자료 파일은 그대로) |
-| `scripts\windows\restore.ps1 -From <latest\|파일 이름\|파일 경로>` | 백업에서 되살리기. 맥에서 가져온 백업 파일 경로도 됨 |
+| `scripts\windows\restore.ps1 -From <latest\|파일 이름\|파일 경로>` | 백업에서 복원. 맥에서 가져온 백업 파일 경로도 됨 |
 | `scripts\windows\uninstall.ps1` | 자동 실행 해제. 판, 자료 파일, 백업은 남김 |
 | `scripts\windows\phone.ps1` | 폰 주소 열기 (아래 「폰에서 열기」). `-Off` 로 닫기 |
 
 - 기록: `%LOCALAPPDATA%\naeil\logs\` 의 `server.log`, `server.err.log`, `service.log`(켜고 다시 켠 기록), `backup.log`
 - 전원 설정에서 「절전 모드: 안 함」 (전원 연결 중). 잠자는 동안은 서버도 멈춘다. 배포와 상태 보기가 잠자기 설정을 확인해 경고한다
-- 출입증은 배포본 자료 파일에 만든다: `$env:NAEIL_DB="$env:LOCALAPPDATA\naeil\naeil.db"; npm run key -- new author`
+- API 키는 배포본 자료 파일에 만든다: `$env:NAEIL_DB="$env:LOCALAPPDATA\naeil\naeil.db"; npm run key -- new author`
 - 배포 스크립트는 관리자 권한이 필요하다 (로그인 전에도 켜지게 등록할 때 한 번). 서버 자체는 그 사용자 권한으로 돈다
-- 자동 검사의 윈도우 일(`scripts\windows\ci-verify.ps1`)이 실제 윈도우에서 배포, 죽였다 다시 켜짐, 작업 멈춤, 매일 백업, 다시 배포, 되돌리기, 바깥 파일로 되살리기, 해제를 확인한다. 실제 작업판 컴퓨터에서는 돌리지 않는다 (끝에서 등록을 지움)
+- CI의 윈도우 일(`scripts\windows\ci-verify.ps1`)이 실제 윈도우에서 배포, 죽였다 다시 켜짐, 작업 멈춤, 매일 백업, 다시 배포, 되돌리기, 바깥 파일로 복원, 해제를 확인한다. 실제 작업판 컴퓨터에서는 돌리지 않는다 (끝에서 등록을 지움)
 
 ## 가져오기와 vault 다리 (한 시간마다)
 윈도우 배포가 `naeil-import` 작업을 한 시간마다 돌린다. 설정 파일 `%LOCALAPPDATA%\naeil\import.json` 이 있을 때만 일을 한다.
@@ -96,14 +96,14 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\status.ps1
 }
 ```
 한 번 돌 때 순서:
-1. 받는 폴더(inbox)의 요청 파일 처리: 새 할 일, 하는 중, 끝, 멈춤, 되살리기, 정할 것(질문, 선택지, 추천, 근거), 어디까지(한 줄). 휴지통과 지우기는 받지 않는다. 처리한 파일은 `처리함` 으로 옮기고 결과를 옆에 적는다
+1. 요청함(inbox)의 요청 파일 처리: 새 할 일, 하는 중, 끝, 멈춤, 복원, 정할 것(질문, 선택지, 추천, 근거), 어디까지(한 줄). 휴지통과 지우기는 받지 않는다. 처리한 파일은 `처리함` 으로 옮기고 결과를 옆에 적는다
 2. 출처 가져오기. 출처 + 출처 번호가 같으면 같은 일 (두 번 돌려도 그대로)
-   - vault 할 일 원장: 몫이 작가인 결정은 「내 결정 기다림」, AI 몫은 지금 할 것 후보에서 빠짐
-   - 깃허브 이슈: 늘 AI 몫. 열린 이슈만 새로 넣고, 최근 30일 안에 닫힌 것은 이미 가져온 것만 끝냄. 본문은 안 가져옴(바깥 글). 비공개 저장소면 환경 변수 `NAEIL_GITHUB_TOKEN` (읽기 전용)
+   - vault 할 일 목록 파일: 몫이 작가인 결정은 「내 결정 대기」, AI 담당은 지금 할 것 후보에서 빠짐
+   - 깃허브 이슈: 늘 AI 담당. 열린 이슈만 새로 넣고, 최근 30일 안에 닫힌 것은 이미 가져온 것만 끝냄. 본문은 안 가져옴(외부 입력). 비공개 저장소면 환경 변수 `NAEIL_GITHUB_TOKEN` (읽기 전용)
    - 이미 끝난 일은 새로 넣지 않는다. 작가가 휴지통에 넣은 것은 다시 꺼내지 않는다
    - 출처에서 바뀐 칸만 고친다. 작업판에서 끝내거나 이름을 바꾼 것을 출처가 그대로라는 이유로 되돌리지 않는다
-3. vault 에 「오늘 한 장」 쓰기: 지금 할 것, 내가 정할 것(질문과 선택지), 마감 가까운 것, 하는 중(어디까지), AI 몫. vault 동기화로 클라우드 세션까지 간다
-4. `handoffDir` 이 있으면 열린 일이 있는 프로젝트마다 이어하기 한 장(목표, 남은 일, 바뀐 것, 근거, 막힌 것)을 쓴다. 이어하기 스위치를 끄면 안 쓴다
+3. vault 에 「오늘 요약」 쓰기: 지금 할 것, 내가 정할 것(질문과 선택지), 마감 가까운 것, 하는 중(어디까지), AI 담당. vault 동기화로 클라우드 세션까지 간다
+4. `handoffDir` 이 있으면 열린 일이 있는 프로젝트마다 인수인계 문서(목표, 남은 일, 바뀐 것, 근거, 막힌 것)을 쓴다. 인수인계 문서 기능를 끄면 안 쓴다
 
 - 한 출처가 실패해도 다음 출처는 돈다. 한 출처 안에서는 한 묶음 저장(중간 실패면 그 회차는 하나도 안 남음)
 - 지금 바로 한 번: `Start-ScheduledTask naeil-import`, 기록은 `logs\import.log`
@@ -117,12 +117,12 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\phone.ps1
 ```
 - 그 주소는 내 Tailscale 기기(폰, 맥)에서만 열린다. 인터넷에는 안 열린다
 - 처음 한 번은 Tailscale 관리 화면에서 MagicDNS 와 HTTPS 인증서를 켜야 한다. 안 켜져 있으면 `phone.ps1` 이 Tailscale 의 안내(켜는 주소)를 그대로 보여 준다
-- 폰에서는 Tailscale 앱을 켠 채 주소를 열고, 처음 한 번 출입증을 넣는다. 홈 화면에 추가하면 앱처럼 열린다
-- 서버를 `NAEIL_HOST=0.0.0.0` 처럼 밖으로 열지 않는다. 출입증이 평문으로 오가서, 켤 때 경고가 뜬다
+- 폰에서는 Tailscale 앱을 켠 채 주소를 열고, 처음 한 번 API 키를 넣는다. 홈 화면에 추가하면 앱처럼 열린다
+- 서버를 `NAEIL_HOST=0.0.0.0` 처럼 밖으로 열지 않는다. API 키가 평문으로 오가서, 켤 때 경고가 뜬다
 - 평문 주소로 열어도 할 일 넣기가 막히지는 않는다 (브라우저 흐름 시험 `phone`)
 
 ## 맥에서 윈도우로 옮기기 (한 번)
-맥 자료를 백업 파일 하나로 떠서 윈도우에서 되살린다. 출입증과 폐기 기록이 자료 안에 있어서, 쓰던 출입증이 그대로 통하고 폐기한 것은 막힌 채로 온다.
+맥 자료를 백업 파일 하나로 떠서 윈도우에서 복원한다. API 키와 폐기 기록이 자료 안에 있어서, 쓰던 API 키가 그대로 통하고 폐기한 것은 막힌 채로 온다.
 1. 윈도우: 위 「윈도우에서 늘 켜 두기」로 배포 (빈 작업판으로 켜짐)
 2. 맥: 서버를 끄고(백업 뒤에 바뀌는 것이 없게) 백업을 뜬다
    ```bash
@@ -137,7 +137,7 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\phone.ps1
 5. 맥: `bash scripts/macos/uninstall.sh` (자동 실행만 끔. 맥 자료는 옮기기 전 사본으로 남음)
 6. 작업판을 부르는 세션과 도구의 주소를 `http://127.0.0.1:3700` 에서 윈도우의 `https://<기기 이름>.<tailnet 이름>.ts.net` 으로
 
-## 백업과 되살리기
+## 백업과 복원
 | 언제 | 무엇이 |
 |---|---|
 | 매일 새벽 4시 17분 (잠자고 있었으면 깨어날 때) | 백업 → 그 백업으로 복원 연습 → 14개만 남기고 정리 (`com.naeil.backup`) |
@@ -146,20 +146,20 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\phone.ps1
 
 - 자리: `~/Library/Application Support/naeil/backups/naeil-<세계 표준시>.db` 와 기록표 `.json` (크기, 지문, 줄 수, 표 구조 판)
 - 켜진 서버가 쓰는 중에도 뜬다 (SQLite 백업). 곁 파일 없이 파일 하나로 끝난다
-- 복원 연습은 백업을 임시 폴더에 되살려 앱으로 열어 본다: 무결성, 지문, 줄 수, 폐기한 출입증이 막히는지, 상태 확인, 프로젝트 목록. 실제 자료는 건드리지 않는다. 결과는 `backups/last-drill.json`
+- 복원 연습은 백업을 임시 폴더에 복원해 앱으로 열어 본다: 무결성, 지문, 줄 수, 폐기한 API 키가 막히는지, 상태 확인, 프로젝트 목록. 실제 자료는 건드리지 않는다. 결과는 `backups/last-drill.json`
 - 상태 확인 `checks.backup`: `ok`(36시간 안 백업, 마지막 연습 통과), `stale`, `none`, `failed`. 알리기만 하고 `ok` 에는 넣지 않는다
 - 보관 개수: `NAEIL_BACKUP_KEEP` (기본 14). 자리: `NAEIL_BACKUP_DIR`
 
-### 되살리기 (맥)
+### 복원 (맥)
 ```bash
 bash scripts/macos/restore.sh latest                        # 가장 최근 백업
 bash scripts/macos/restore.sh naeil-20261110T041700Z.db     # 고른 백업
 ```
-서버를 끄고(끄라는 신호라 다시 켜지지 않음), 지금 자료를 `backups/before-restore-<시각>/` 으로 **옮겨 두고**(지우지 않음), 백업을 제자리에 놓고, 폐기 명부를 다시 적용한 뒤 켠다. 서버가 켜져 있으면 되살리기 명령은 거절한다.
+서버를 끄고(끄라는 신호라 다시 켜지지 않음), 지금 자료를 `backups/before-restore-<시각>/` 으로 **옮겨 두고**(지우지 않음), 백업을 제자리에 놓고, 폐기 키 목록을 다시 적용한 뒤 켠다. 서버가 켜져 있으면 복원 명령은 거절한다.
 
-### 폐기한 출입증은 되살려도 막힌 채로
-폐기하기 전에 뜬 백업 안에서는 그 출입증이 아직 살아 있다. 그래서 폐기할 때 자료 파일 「밖」의 폐기 명부(`revoked-keys.json`, 자료 파일 옆)에도 적고, 서버를 켤 때와 되살릴 때마다 명부를 다시 적용한다.
-- 명부에는 잠근 값(sha256)과 이름, 시각만. 출입증 원문은 없다
+### 폐기한 API 키는 복원해도 막힌 채로
+폐기하기 전에 뜬 백업 안에서는 그 API 키가 아직 살아 있다. 그래서 폐기할 때 자료 파일 「밖」의 폐기 키 목록(`revoked-keys.json`, 자료 파일 옆)에도 적고, 서버를 켤 때와 되살릴 때마다 명부를 다시 적용한다.
+- 명부에는 잠근 값(sha256)과 이름, 시각만. API 키 원문은 없다
 - 명부가 생기기 전에 폐기한 것은 켤 때 자료에서 명부로 옮겨 적는다
 - 명부 파일을 지우면 이 보호가 사라진다. 백업과 같이 지우지 말 것
 
@@ -188,7 +188,7 @@ done
 `.env` 에 `NAEIL_DB=data/naeil.db` 줄이 있으면 지우거나 새 절대경로로 바꾼 뒤 켠다. 켠 뒤 기록의 `자료 파일` 줄과 화면의 작업 수를 확인한다.
 
 ## 상태 확인 (`GET /health`)
-자동 재시작과 알림은 이 답만 본다. 출입증 없이 열린다.
+자동 재시작과 알림은 이 답만 본다. API 키 없이 열린다.
 
 | 답 | 뜻 | 할 일 |
 |---|---|---|

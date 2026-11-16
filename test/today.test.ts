@@ -56,7 +56,7 @@ describe("지금 할 것 1개", () => {
     const d = task({ deleted_at: "2026-10-25T00:00:00Z" });
     expect(pickNow([a, b, c, d])).toBeNull();
   });
-  it("건너뛰면 다음 것, 「오늘은 이거」는 맨 앞, 고정한 일이 멈추면 고정이 풀린 것처럼", () => {
+  it("건너뛰면 다음 것, 「오늘 할 일」은 맨 앞, 고정한 일이 멈추면 고정이 풀린 것처럼", () => {
     const a = task({ status: "doing" });
     const b = task();
     expect(pickNow([a, b], { skipped: new Set([a.id]) })?.id).toBe(b.id);
@@ -67,7 +67,7 @@ describe("지금 할 것 1개", () => {
 });
 
 describe("나머지 칸", () => {
-  it("내가 정할 것 = 내 결정 기다림만", () => {
+  it("내가 정할 것 = 내 결정 대기만", () => {
     const a = task({ blocked_reason: "my_decision" });
     const b = task({ blocked_reason: "external" });
     expect(waitingOnMe([a, b]).map((t) => t.id)).toEqual([a.id]);

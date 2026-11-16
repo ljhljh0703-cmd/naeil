@@ -1,7 +1,7 @@
-// 폐기한 출입증 명부. 자료 파일 「밖」에 따로 둔다.
-// 왜: 폐기하기 전에 뜬 백업으로 되살리면, 그 백업 안의 출입증은 아직 살아 있다.
+// 폐기한 API 키 명부. 자료 파일 「밖」에 따로 둔다.
+// 왜: 폐기하기 전에 뜬 백업으로 되살리면, 그 백업 안의 API 키는 아직 살아 있다.
 // 명부가 자료 파일과 같이 되돌아가지 않도록 옆 파일로 두고, 켤 때와 되살릴 때마다 다시 적용한다.
-// 담는 것은 잠근 값(sha256)뿐. 출입증 원문은 어디에도 없다.
+// 담는 것은 잠근 값(sha256)뿐. API 키 원문은 어디에도 없다.
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type Database from "better-sqlite3";
@@ -15,7 +15,7 @@ export function readLedger(path: string): Revocation[] {
   if (!existsSync(path)) return [];
   const data = JSON.parse(readFileSync(path, "utf8")) as Ledger;
   if (data.version !== 1 || !Array.isArray(data.revoked)) {
-    throw new Error(`폐기 명부 모양이 틀림: ${path}`);
+    throw new Error(`폐기 키 목록 모양이 틀림: ${path}`);
   }
   return data.revoked;
 }
@@ -36,7 +36,7 @@ export function addToLedger(path: string, items: Revocation[]): number {
 }
 
 // 자료 파일과 명부를 양쪽으로 맞춘다.
-// 명부 → 자료: 명부에 있는데 자료에서 살아 있는 출입증을 폐기 (백업에서 되살린 경우)
+// 명부 → 자료: 명부에 있는데 자료에서 살아 있는 API 키를 폐기 (백업에서 되살린 경우)
 // 자료 → 명부: 자료에서 폐기됐는데 명부에 없는 것을 명부에 추가 (명부가 생기기 전에 폐기한 것)
 export function syncRevocations(
   db: Database.Database,

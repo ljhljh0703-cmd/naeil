@@ -41,7 +41,7 @@ const call = async (
 };
 
 describe("날짜별 사용 기록", () => {
-  it("처음 연 시각은 사람 출입증의 그날 첫 요청만, AI 출입증은 세지 않음", async () => {
+  it("처음 연 시각은 사람 API 키의 그날 첫 요청만, AI API 키는 세지 않음", async () => {
     at = new Date("2026-11-15T23:00:00Z"); // 한국 11/16 08:00, AI 가 먼저
     await call("GET", "/v1/projects", "/v1/projects", claude);
     at = new Date("2026-11-16T00:30:00Z"); // 09:30 작가

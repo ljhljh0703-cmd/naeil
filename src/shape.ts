@@ -75,8 +75,9 @@ export const toDecision = (d: Decision) => ({
 
 // 오늘 (M1-7): 지금 할 것, 내가 정할 것, 마감 가까운 것을 서버가 계산
 export function buildToday(s: Store, day: string, now: Date) {
-  const tasks = s.listTasks();
   const state = s.getDay(day);
+  const { tasks, later } = s.todayTasks(state.pinnedTaskId);
+  const shown = new Set(tasks.map((t) => t.id));
   const pick = pickNow(tasks, { skipped: new Set(state.skipped), pinnedId: state.pinnedTaskId });
   return {
     day,
@@ -86,7 +87,12 @@ export function buildToday(s: Store, day: string, now: Date) {
     waitingOnMe: waitingOnMe(tasks).map(toTask),
     dueSoon: dueSoon(tasks, now).map(toTask),
     // 내가 정할 것의 질문 (결정함, M1-4)
-    decisions: s.listDecisions({ open: true }).map(toDecision),
+    decisions: s
+      .listDecisions({ open: true })
+      .filter((d) => shown.has(d.task_id))
+      .map(toDecision),
+    // 뒤 마일스톤이라 오늘 화면에서 뺀 열린 일 수
+    laterCount: later,
     // AI 가 끈 스위치는 다시 켤 때까지 오늘 화면 맨 위에 (작가 결정 2026-11-13)
     notices: s
       .listSettings()

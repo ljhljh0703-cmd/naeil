@@ -70,7 +70,7 @@ try {
     await p.goto(base);
     ok(
       await until(async () => (await p.locator(".hero h2").count()) === 1),
-      `${label}: 출입증 없이 바로 오늘 화면`,
+      `${label}: API 키 없이 바로 오늘 화면`,
     );
     ok(
       await until(async () =>

@@ -1,5 +1,5 @@
 // 가져오기 한 번 (M1-3). 윈도우 작업 스케줄러가 한 시간마다 부른다 (scripts/service.mjs import).
-//   npm run import            설정 파일대로: 받는 폴더 처리 → 출처 가져오기 → 오늘 한 장 쓰기
+//   npm run import            설정 파일대로: 요청함 처리 → 출처 가져오기 → 오늘 요약 쓰기
 // 설정: NAEIL_IMPORT_CONFIG 또는 자료 파일 옆 import.json
 //   { "sources": [ { "type": "vault-json", "path": "...naeil-source.json", "project": "vault 유지보수" },
 //                  { "type": "github", "repo": "owner/name" } ],
@@ -46,6 +46,6 @@ for (const s of out.sources) {
     );
   }
 }
-if (out.sheet) console.log(`오늘 한 장: ${out.sheet}`);
-if (out.handoffs?.length) console.log(`이어하기 한 장 ${out.handoffs.length}개`);
+if (out.sheet) console.log(`오늘 요약: ${out.sheet}`);
+if (out.handoffs?.length) console.log(`인수인계 문서 ${out.handoffs.length}개`);
 process.exit(failed ? 1 : 0);

@@ -21,7 +21,7 @@ loadEnv();
 const config = loadConfig();
 let checkDb: (() => DbState) | null = null;
 const db = openDb(config.dbPath);
-// 폐기 명부를 켤 때마다 다시 적용한다 (백업에서 되살린 자료라도 폐기한 출입증은 막힌 채로)
+// 폐기 키 목록을 켤 때마다 다시 적용한다 (백업에서 되살린 자료라도 폐기한 API 키는 막힌 채로)
 const revocations =
   config.dbPath === ":memory:" ? null : syncRevocations(db, ledgerPathFor(config.dbPath));
 const backupDir = config.dbPath === ":memory:" ? undefined : backupDirFor(config.dbPath);
@@ -39,7 +39,10 @@ const app = buildApp({
 app.log.info({ db: config.dbPath }, "자료 파일");
 for (const note of config.notes) app.log.warn(note);
 if (revocations && revocations.reapplied.length > 0) {
-  app.log.warn({ names: revocations.reapplied }, "폐기 명부에 있는데 살아 있던 출입증을 다시 막음");
+  app.log.warn(
+    { names: revocations.reapplied },
+    "폐기 키 목록에 있는데 살아 있던 API 키를 다시 막음",
+  );
 }
 if (!existsSync(join(WEB_DIR, "index.html"))) {
   app.log.warn(`화면 파일이 없음 (${WEB_DIR}). npm run build 를 먼저 하세요. API 는 그대로 열림`);

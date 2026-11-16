@@ -31,7 +31,7 @@ function Bar({ p, label }: { p: Progress; label: string }) {
 const progressLabel = (p: Progress) =>
   p.total === 0
     ? "할 일 없음"
-    : `${p.done}/${p.total} 끝${p.doing ? ` · 하는 중 ${p.doing}` : ""} · ${p.percent}%`;
+    : `${p.done}/${p.total} 완료${p.doing ? ` · 진행 중 ${p.doing}` : ""} · ${p.percent}%`;
 
 export function Board({
   ctx,
@@ -186,7 +186,7 @@ function TrashProject({
         {milestones || tasks
           ? `와 안의 마일스톤 ${milestones}개, 할 일 ${tasks}개를 휴지통에 넣습니다.`
           : "를 휴지통에 넣습니다."}{" "}
-        휴지통에서 되살리면 같이 돌아옵니다.
+        휴지통에서 되돌리면 같이 돌아옵니다.
       </p>
       <div className="row">
         <button type="button" className="danger" disabled={busy} onClick={go}>
@@ -241,7 +241,7 @@ function TrashBin({
               disabled={busy === p.id}
               onClick={() => revive(p.id)}
             >
-              되살리기
+              되돌리기
             </button>
           </li>
         ))}
@@ -280,7 +280,7 @@ function MilestoneSection({
         // 보드 안에서는 「할 일」이 기본이라 상태 칩을 빼고, 하는 중·끝만 남긴다. 프로젝트 이름도 위에 있으니 뺀다
         status: t.status === "todo" ? undefined : c.status,
         meta: undefined,
-        quickAction: t.status !== "done" ? { id: "done", label: "끝냄" } : undefined,
+        quickAction: t.status !== "done" ? { id: "done", label: "완료" } : undefined,
       };
     })
     .filter((c): c is CardModel => !!c);
