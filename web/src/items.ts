@@ -2,9 +2,9 @@
 // 형태면 좋겠음 누르면 볼 수 있게. 이런 범용성 확장성」).
 // 근거 조사: 카드 앞면은 적게, 상세는 칸 배열 (Trello 카드 뒷면 칸 · Backstage 종류별 탭 · Jira 빈 칸 숨김).
 // 새 종류(마일스톤 · AI 세션 · 스킬)는 registerItemType 하나로 끼운다. 칸 모양은 공통 틀이 그린다.
-import type { ApiTask, Change, Milestone, Project } from "./api.js";
+import type { ApiTask, Change, Decision, Milestone, Project } from "./api.js";
 import { groupBoard, isComplete, progressOf, sortForBoard } from "./board.js";
-import { ACTION, BLOCKED, dayOf, dLabel, STATUS, timeOf, whoOf } from "./labels.js";
+import { ACTION, BLOCKED, dayOf, dLabel, IMPORT_CHANGE, STATUS, timeOf, whoOf } from "./labels.js";
 import { dDay, kstDate, type Status } from "./today.js";
 
 export type ItemType = "task" | "change" | "milestone";
@@ -58,7 +58,16 @@ export type Ctx = {
   projects: Project[];
   milestones: Milestone[];
   now: Date;
+  // 결정함 (M1-4). 없으면 빈 것으로
+  decisions?: Decision[];
+  // 이어하기 스위치. 끄면 이어하기 버튼과 「어디까지 했나」 칸이 숨음 (기록은 계속 받음)
+  handoffOn?: boolean;
 };
+
+export const openDecisionOf = (ctx: Ctx, taskId: string) =>
+  ctx.decisions?.find((d) => d.taskId === taskId && !d.answeredAt);
+const lastAnswerOf = (ctx: Ctx, taskId: string) =>
+  ctx.decisions?.find((d) => d.taskId === taskId && d.answeredAt);
 
 type Def<T> = {
   label: string;
@@ -130,7 +139,103 @@ function changeText(c: Change): string {
   if (c.action === "block" && typeof d.reason === "string") {
     return `${base}: ${BLOCKED[d.reason as keyof typeof BLOCKED] ?? d.reason}`;
   }
+  if (c.action === "import" && typeof d.change === "string") {
+    return IMPORT_CHANGE[d.change] ?? base;
+  }
   return base;
+}
+
+// 「마지막에 한 일」에서 같은 가져오기 회차(같은 누가, 10분 안)의 줄을 한 줄로 접는다 (M1-3).
+// 이슈 40개를 넣어도 마지막에 한 일이 가져오기 줄로 덮이지 않게 (2026-11-13 검토)
+export type RecentRow = { change: Change; group?: Change[] };
+export function foldImports(changes: Change[], within = 10 * 60_000): RecentRow[] {
+  const out: RecentRow[] = [];
+  for (const c of changes) {
+    const prev = out.at(-1);
+    const head = prev?.group?.[0] ?? prev?.change;
+    // 가져오기가 남긴 「정할 것 물음」도 같은 회차로 (원장의 결정은 결정함에 질문으로 들어감)
+    if (
+      (c.action === "import" || c.action === "ask") &&
+      prev &&
+      head?.action === "import" &&
+      head.actor === c.actor &&
+      Math.abs(Date.parse(head.at) - Date.parse(c.at)) <= within
+    ) {
+      prev.group = [...(prev.group ?? [prev.change]), c];
+      continue;
+    }
+    out.push({ change: c });
+  }
+  return out;
+}
+
+export function importSummary(group: Change[]): string {
+  const n: Record<string, number> = {};
+  let asks = 0;
+  for (const c of group) {
+    if (c.action === "ask") {
+      asks++;
+      continue;
+    }
+    const k = typeof c.details?.change === "string" ? c.details.change : "update";
+    n[k] = (n[k] ?? 0) + 1;
+  }
+  const parts = (["create", "close", "reopen", "update"] as const)
+    .filter((k) => n[k])
+    .map((k) => `${IMPORT_CHANGE[k]} ${n[k]}`);
+  if (asks) parts.push(`정할 것 ${asks}`);
+  return `가져오기 ${group.length - asks}건: ${parts.join(", ")}`;
+}
+
+// 정할 것: 질문, 근거, 선택지 버튼(추천 먼저 강조), 다른 답 칸. 답한 뒤에는 질문과 고른 답 (M1-4)
+function decisionSections(ctx: Ctx, t: ApiTask): Section[] {
+  const ask = openDecisionOf(ctx, t.id);
+  if (ask) {
+    return [
+      {
+        id: "decision",
+        kind: "body",
+        title: "정할 것",
+        text: ask.question,
+        note: [ask.basis ? `근거: ${ask.basis}` : "", `물은 쪽: ${ask.askedBy}`]
+          .filter(Boolean)
+          .join(" · "),
+      },
+      {
+        id: "decision-actions",
+        kind: "actions",
+        actions: [
+          ...ask.options.map(
+            (o, i): Action => ({
+              id: `answer:${i}`,
+              label: o === ask.recommended ? `${o} (추천)` : o,
+              tone: o === ask.recommended ? "primary" : "default",
+            }),
+          ),
+          {
+            id: "answer-text",
+            label: ask.options.length ? "다른 답" : "답",
+            control: { kind: "text", value: "", maxLength: 500 },
+          },
+        ],
+      },
+    ];
+  }
+  const last = lastAnswerOf(ctx, t.id);
+  return last
+    ? [
+        {
+          id: "decided",
+          kind: "fields",
+          title: "정한 것",
+          fields: [
+            { label: "질문", value: last.question },
+            { label: "고른 답", value: last.answer },
+            { label: "정한 때", value: last.answeredAt ? timeOf(last.answeredAt) : null },
+          ],
+        },
+      ]
+    : [];
 }
 
 export function taskChips(t: ApiTask, ctx: Ctx): Chip[] {
@@ -140,6 +245,7 @@ export function taskChips(t: ApiTask, ctx: Ctx): Chip[] {
     const d = dDay(t.dueAt, ctx.now);
     chips.push({ label: dLabel(d), tone: d < 0 ? "fail" : d <= 1 ? "warn" : "neutral" });
   }
+  if (t.owner === "ai") chips.push({ label: "AI 몫", tone: "neutral" });
   if (t.externalText) chips.push({ label: "바깥에서 온 글", tone: "neutral" });
   return chips.slice(0, 3);
 }
@@ -164,8 +270,11 @@ registerItemType<ApiTask>("task", {
         tone: t.status === "doing" ? "primary" : "default",
       });
     if (t.status === "done") actions.push({ id: "reopen", label: "다시 열기" });
-    if (t.blockedReason === "my_decision") actions.push({ id: "decided", label: "정했음" });
-    else if (t.status !== "done") actions.push({ id: "need-decision", label: "내가 정할 게 있음" });
+    const ask = openDecisionOf(ctx, t.id);
+    if (t.blockedReason === "my_decision" && !ask) actions.push({ id: "decided", label: "정했음" });
+    else if (t.status !== "done" && t.blockedReason !== "my_decision")
+      actions.push({ id: "need-decision", label: "내가 정할 게 있음" });
+    if (ctx.handoffOn !== false) actions.push({ id: "handoff", label: "이어하기 복사" });
     const choices = ctx.milestones.filter((m) => m.projectId === t.projectId);
     if (choices.length > 0) {
       actions.push({
@@ -187,6 +296,7 @@ registerItemType<ApiTask>("task", {
       status: { label: STATUS[t.status], tone: statusTone[t.status] },
       meta: projectName(ctx, t.projectId) ?? undefined,
       sections: [
+        ...decisionSections(ctx, t),
         { id: "actions", kind: "actions", actions },
         {
           id: "rename",
@@ -197,6 +307,16 @@ registerItemType<ApiTask>("task", {
               label: "이름",
               control: { kind: "text", value: t.title, maxLength: 200 },
             },
+            // 어디까지 했나 한 줄 (이어하기 스위치를 끄면 숨음. 남긴 한 줄은 지우지 않음)
+            ...(ctx.handoffOn !== false && t.status !== "done"
+              ? [
+                  {
+                    id: "progress",
+                    label: "어디까지 했나",
+                    control: { kind: "text" as const, value: t.progressNote ?? "", maxLength: 500 },
+                  },
+                ]
+              : []),
           ],
         },
         {
@@ -214,6 +334,12 @@ registerItemType<ApiTask>("task", {
               label: "출처",
               value: t.source === "direct" ? null : `${t.source} ${t.sourceRef ?? ""}`,
             },
+            { label: "원문", value: t.sourceUrl ?? null },
+            {
+              label: "어디까지 했나",
+              value: ctx.handoffOn !== false ? (t.progressNote ?? null) : null,
+            },
+            { label: "몫", value: t.owner === "ai" ? "AI 몫 (지금 할 것 후보에서 빠짐)" : null },
             { label: "만든 날", value: timeOf(t.createdAt) },
             { label: "마지막으로 바뀜", value: timeOf(t.updatedAt) },
           ],
@@ -274,6 +400,9 @@ const DETAIL_KEY: Record<string, string> = {
   due_at: "마감",
   milestone_id: "마일스톤",
   cleared_block: "같이 풀린 멈춤",
+  change: "가져오기",
+  ref: "출처 번호",
+  owner: "몫",
   milestones: "같이 옮긴 마일스톤",
   tasks: "같이 옮긴 할 일",
 };
@@ -378,7 +507,19 @@ registerItemType<Milestone>("milestone", {
               label: "목표 날짜",
               control: { kind: "date", value: m.dueAt ? kstDate(new Date(m.dueAt)) : "" },
             },
+            ...(ctx.handoffOn !== false ? [{ id: "handoff", label: "이어하기 복사" }] : []),
             { id: "milestone-trash", label: "휴지통", tone: "danger" },
+          ],
+        },
+        {
+          id: "done-when",
+          kind: "actions",
+          actions: [
+            {
+              id: "milestone-done-when",
+              label: "끝나면",
+              control: { kind: "text", value: m.doneWhen ?? "", maxLength: 500 },
+            },
           ],
         },
         {
@@ -389,6 +530,7 @@ registerItemType<Milestone>("milestone", {
               label: "목표 날짜",
               value: m.dueAt ? `${dayOf(m.dueAt)} (${dLabel(dDay(m.dueAt, ctx.now))})` : null,
             },
+            { label: "끝나면", value: m.doneWhen ?? null },
             {
               label: "진행",
               value:

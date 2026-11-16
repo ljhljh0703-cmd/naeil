@@ -1,6 +1,6 @@
 // 할 일 저장소. 바꿀 때마다 변경 기록에 한 줄 남긴다.
-import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
+// 노드 전용 꾸러미를 들이지 않는다 (브라우저 시연판이 이 파일을 그대로 씀). 아이디는 전역 crypto 로
 import { BadInput, Duplicate, NotFound, RuleViolation, VersionMismatch } from "../errors.js";
 
 export const STATUSES = ["todo", "doing", "done"] as const;
@@ -9,7 +9,8 @@ export type Status = (typeof STATUSES)[number];
 export type BlockedReason = (typeof BLOCKED_REASONS)[number];
 
 // 누가 바꿨나. actor = 출입증이 정한 도구 이름, session = 세션 이름표(선택)
-export type Who = string | { actor: string; session?: string | null };
+export type ActorKind = "human" | "ai" | "ci";
+export type Who = string | { actor: string; session?: string | null; kind?: ActorKind | null };
 
 export type Project = {
   id: string;
@@ -35,9 +36,11 @@ export type Milestone = {
   deleted_at: string | null;
   // 프로젝트와 같이 휴지통에 들어갔으면 그 프로젝트 번호 (004)
   trashed_with?: string | null;
+  // 이 마일스톤이 끝났다고 볼 기준 (007, 이어하기 한 장의 「목표」)
+  done_when?: string | null;
 };
 
-export type MilestonePatch = { name?: string; dueAt?: string | null };
+export type MilestonePatch = { name?: string; dueAt?: string | null; doneWhen?: string | null };
 
 export type Task = {
   id: string;
@@ -58,6 +61,84 @@ export type Task = {
   updated_at: string;
   deleted_at: string | null;
   trashed_with?: string | null;
+  // 006: 작가 몫(author)인가 AI 몫(ai)인가, 가져온 일의 원문 주소
+  owner?: Owner;
+  source_url?: string | null;
+  source_seen?: string | null;
+  // 어디까지 했나 한 줄 (007)
+  progress_note?: string | null;
+};
+
+export type Decision = {
+  id: string;
+  workspace_id: string;
+  task_id: string;
+  question: string;
+  options: string; // JSON
+  recommended: string | null;
+  basis: string | null;
+  asked_by: string;
+  asked_at: string;
+  answer: string | null;
+  note: string | null;
+  answered_by: string | null;
+  answered_at: string | null;
+};
+export type DecisionAsk = {
+  question: string;
+  options?: string[];
+  recommended?: string | null;
+  basis?: string | null;
+};
+
+// 기능 스위치 (M1-4). 처음에는 모두 켜짐 (작가 결정 2026-11-13 「셋 다 켜짐」).
+// 스위치는 화면만 숨긴다. 경계 규칙(사람 확인 대기, 검증됨은 전용 출입증만)은 스위치와 무관하게 늘 적용
+export const SWITCHES = {
+  handoff: "이어하기",
+} as const;
+export type SwitchName = keyof typeof SWITCHES;
+export type Setting = {
+  name: SwitchName;
+  label: string;
+  enabled: boolean;
+  reason: string | null;
+  changedBy: string | null;
+  changedKind: string | null;
+  changedAt: string | null;
+};
+
+export type Owner = "author" | "ai";
+
+export type UsageDay = {
+  day: string;
+  firstOpenedAt: string | null;
+  authorChanges: number;
+  decisions: number;
+  aiChanges: number;
+  imports: number;
+};
+
+// 가져올 일 하나 (M1-3). 출처 + 출처 번호가 같으면 같은 일로 보고 새로 넣지 않고 고친다
+export type ImportItem = {
+  ref: string;
+  title: string;
+  state: "open" | "done";
+  owner: Owner;
+  decision?: boolean; // 작가가 정할 일이면 「내 결정 기다림」으로, 결정함에 질문을 남김
+  options?: string[];
+  recommended?: string | null;
+  basis?: string | null;
+  dueAt?: string | null;
+  body?: string | null;
+  url?: string | null;
+};
+export type ImportResult = {
+  created: number;
+  updated: number;
+  closed: number;
+  reopened: number;
+  same: number;
+  skipped: number; // 작가가 휴지통에 넣은 것은 다시 꺼내지 않음
 };
 
 export type ChangeRow = {
@@ -66,11 +147,30 @@ export type ChangeRow = {
   at: string;
   actor: string;
   session: string | null;
+  actor_kind: ActorKind | null;
   entity: string;
   entity_id: string;
   action: string;
   details: string | null;
 };
+
+export type ChangeFilter = {
+  actor?: string;
+  actorKind?: ActorKind;
+  entity?: "project" | "milestone" | "task";
+  entityId?: string;
+  since?: string; // 한국 날짜 YYYY-MM-DD (그날 0시부터)
+  until?: string; // 한국 날짜 YYYY-MM-DD (그날 끝까지)
+  limit?: number;
+  beforeId?: number;
+};
+
+// 한국 날짜의 0시를 세계 표준시로 (days 만큼 뒤 날짜)
+export function kstDayStart(day: string, days = 0): string {
+  const t = Date.parse(`${day}T00:00:00+09:00`);
+  if (Number.isNaN(t)) throw new BadInput(`날짜는 YYYY-MM-DD 로: ${day}`);
+  return new Date(t + days * 86_400_000).toISOString();
+}
 
 export type TaskFilter = {
   projectId?: string;
@@ -88,6 +188,8 @@ export type TaskPatch = {
   status?: Status;
   dueAt?: string | null;
   milestoneId?: string | null;
+  owner?: Owner;
+  progressNote?: string | null;
 };
 
 type Clock = () => Date;
@@ -107,8 +209,10 @@ const utc = (v: string | null | undefined) => {
   return date.toISOString();
 };
 
-function norm(who: Who): { actor: string; session: string | null } {
-  return typeof who === "string" ? { actor: who, session: null } : { session: null, ...who };
+function norm(who: Who): { actor: string; session: string | null; kind: ActorKind | null } {
+  return typeof who === "string"
+    ? { actor: who, session: null, kind: null }
+    : { actor: who.actor, session: who.session ?? null, kind: who.kind ?? null };
 }
 
 export class Store {
@@ -123,16 +227,17 @@ export class Store {
   }
 
   private log(who: Who, entity: string, entityId: string, action: string, details?: unknown) {
-    const { actor, session } = norm(who);
+    const { actor, session, kind } = norm(who);
     this.db
       .prepare(
-        "INSERT INTO change_log (workspace_id, at, actor, session, entity, entity_id, action, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO change_log (workspace_id, at, actor, session, actor_kind, entity, entity_id, action, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         this.workspace,
         this.now(),
         actor,
         session,
+        kind,
         entity,
         entityId,
         action,
@@ -143,7 +248,7 @@ export class Store {
   // ── 프로젝트 ──
 
   createProject(who: Who, name: string): string {
-    const id = randomUUID();
+    const id = crypto.randomUUID();
     const t = this.now();
     this.db.transaction(() => {
       this.db
@@ -271,7 +376,7 @@ export class Store {
   createMilestone(who: Who, projectId: string, name: string, dueAt?: string | null): string {
     return this.db.transaction(() => {
       this.mustProject(projectId);
-      const id = randomUUID();
+      const id = crypto.randomUUID();
       const t = this.now();
       const due = utc(dueAt);
       this.db
@@ -328,6 +433,12 @@ export class Store {
         args.push(due);
         changed.due_at = due;
       }
+      if (patch.doneWhen !== undefined) {
+        const v = patch.doneWhen?.trim() || null;
+        sets.push("done_when = ?");
+        args.push(v);
+        changed.done_when = v;
+      }
       if (sets.length === 0) return;
       this.bumpEntity("milestones", id, expectedVersion, sets.join(", "), args);
       this.log(who, "milestone", id, "update", changed);
@@ -363,6 +474,8 @@ export class Store {
       sourceRef?: string;
       externalText?: boolean;
       body?: string;
+      owner?: Owner;
+      sourceUrl?: string;
     },
   ): string {
     if (!this.getProject(input.projectId))
@@ -370,7 +483,7 @@ export class Store {
     if (input.milestoneId && !this.milestoneInProject(input.milestoneId, input.projectId)) {
       throw new BadInput("milestoneId 가 이 프로젝트의 마일스톤이 아님");
     }
-    const id = randomUUID();
+    const id = crypto.randomUUID();
     const t = this.now();
     // 할 일과 「누가 만들었나」 기록은 한 묶음. 기록이 실패하면 할 일도 남기지 않는다 (S1, 2026-11-05)
     this.db.transaction(() => {
@@ -392,13 +505,15 @@ export class Store {
       sourceRef?: string;
       externalText?: boolean;
       body?: string;
+      owner?: Owner;
+      sourceUrl?: string;
     },
   ) {
     try {
       this.db
         .prepare(
-          `INSERT INTO tasks (id, workspace_id, project_id, milestone_id, title, due_at, source, source_ref, external_text, body, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO tasks (id, workspace_id, project_id, milestone_id, title, due_at, source, source_ref, external_text, body, created_at, updated_at, owner, source_url)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -409,10 +524,13 @@ export class Store {
           utc(input.dueAt),
           input.source ?? "direct",
           input.sourceRef ?? null,
-          input.externalText ? 1 : 0,
+          // 직접 쓴 것이 아니면(깃허브 등에서 가져옴) 보내는 쪽이 빼도 서버가 늘 바깥 글로 표시 (M1-7)
+          input.externalText || (input.source ?? "direct") !== "direct" ? 1 : 0,
           input.body ?? null,
           t,
           t,
+          input.owner ?? "author",
+          input.sourceUrl ?? null,
         );
     } catch (err) {
       if ((err as { code?: string }).code === "SQLITE_CONSTRAINT_UNIQUE") {
@@ -511,6 +629,17 @@ export class Store {
       args.push(patch.milestoneId);
       changed.milestone_id = patch.milestoneId;
     }
+    if (patch.owner !== undefined && patch.owner !== before.owner) {
+      sets.push("owner = ?");
+      args.push(patch.owner);
+      changed.owner = patch.owner;
+    }
+    if (patch.progressNote !== undefined) {
+      const v = patch.progressNote?.trim() || null;
+      sets.push("progress_note = ?");
+      args.push(v);
+      changed.progress_note = v;
+    }
     if (patch.status !== undefined) {
       sets.push("status = ?");
       args.push(patch.status);
@@ -587,14 +716,388 @@ export class Store {
     })();
   }
 
+  // ── 가져오기 (M1-3) ──
+
+  // 이름으로 프로젝트를 찾고, 없으면 만든다 (가져오기 묶음마다 프로젝트 하나)
+  ensureProject(who: Who, name: string): string {
+    const found = this.db
+      .prepare(
+        "SELECT id FROM projects WHERE workspace_id = ? AND name = ? AND deleted_at IS NULL ORDER BY created_at LIMIT 1",
+      )
+      .get(this.workspace, name) as { id: string } | undefined;
+    return found?.id ?? this.createProject(who, name);
+  }
+
+  // 출처 하나의 일들을 넣거나 고친다. 두 번 돌려도 같은 결과 (출처 + 출처 번호 기준).
+  // 한 묶음으로 저장해, 중간에 실패하면 이번 회차는 하나도 남기지 않는다.
+  // 출처에서 바뀐 칸만 고친다: 지난번에 출처에서 본 값(source_seen)과 다를 때만.
+  // 작업판에서 끝냈거나 이름을 바꾼 것을, 출처가 그대로라는 이유로 되돌리지 않는다.
+  importItems(who: Who, source: string, projectId: string, items: ImportItem[]): ImportResult {
+    const r: ImportResult = { created: 0, updated: 0, closed: 0, reopened: 0, same: 0, skipped: 0 };
+    this.db.transaction(() => {
+      this.mustProject(projectId);
+      for (const it of items) {
+        const seen = {
+          state: it.state,
+          title: it.title,
+          due: it.dueAt ? utc(it.dueAt) : null,
+          body: it.body ?? null,
+          url: it.url ?? null,
+          owner: it.owner,
+          decision: !!it.decision,
+          options: JSON.stringify(it.options ?? []),
+          recommended: it.recommended ?? null,
+        };
+        const t = this.db
+          .prepare("SELECT * FROM tasks WHERE workspace_id = ? AND source = ? AND source_ref = ?")
+          .get(this.workspace, source, it.ref) as Task | undefined;
+        if (!t) {
+          const id = crypto.randomUUID();
+          this.insertTask(id, this.now(), {
+            projectId,
+            title: it.title,
+            dueAt: it.dueAt ?? undefined,
+            source,
+            sourceRef: it.ref,
+            body: it.body ?? undefined,
+            owner: it.owner,
+            sourceUrl: it.url ?? undefined,
+          });
+          const extra = it.state === "done" ? ", status = 'done'" : "";
+          this.bump(id, undefined, `source_seen = ?${extra}`, [JSON.stringify(seen)]);
+          this.log(who, "task", id, "import", {
+            source,
+            ref: it.ref,
+            title: it.title,
+            change: "create",
+          });
+          // 작가가 정할 일은 결정함에 질문으로 (선택지, 추천, 근거를 같이)
+          if (it.state === "open" && it.decision) this.askFromImport(who, id, it);
+          r.created++;
+          continue;
+        }
+        // 작가가 휴지통에 넣은 것은 출처에 남아 있어도 다시 꺼내지 않는다
+        if (t.deleted_at) {
+          r.skipped++;
+          continue;
+        }
+        const prev = (t.source_seen ? JSON.parse(t.source_seen) : {}) as Partial<typeof seen>;
+        const moved = <K extends keyof typeof seen>(k: K) => prev[k] !== seen[k];
+        const sets: string[] = [];
+        const args: unknown[] = [];
+        const changed: Record<string, unknown> = {};
+        const field = (col: string, key: keyof typeof seen, current: unknown, label?: string) => {
+          if (moved(key) && seen[key] !== current) {
+            sets.push(`${col} = ?`);
+            args.push(seen[key]);
+            if (label) changed[label] = seen[key];
+          }
+        };
+        field("title", "title", t.title, "title");
+        field("due_at", "due", t.due_at, "due_at");
+        field("body", "body", t.body);
+        field("source_url", "url", t.source_url ?? null);
+        field("owner", "owner", t.owner, "owner");
+        let change = "update";
+        if (moved("state") && seen.state === "done" && t.status !== "done") {
+          sets.push("status = 'done'", "blocked_reason = NULL", "held_by = NULL");
+          change = "close";
+        } else if (moved("state") && seen.state === "open" && t.status === "done") {
+          // 출처에서 다시 열린 것 (놓친 것 부활)
+          sets.push("status = 'todo'");
+          change = "reopen";
+        }
+        const reask =
+          seen.decision &&
+          seen.state === "open" &&
+          change !== "close" &&
+          t.status !== "done" &&
+          (moved("decision") || moved("title") || moved("options") || moved("recommended"));
+        const seenText = JSON.stringify(seen);
+        if (!sets.length) {
+          // 고칠 것은 없어도 본 값은 새로 적는다 (다음 비교의 기준)
+          if (seenText !== t.source_seen)
+            this.db.prepare("UPDATE tasks SET source_seen = ? WHERE id = ?").run(seenText, t.id);
+          if (reask) this.askFromImport(who, t.id, it);
+          r.same++;
+          continue;
+        }
+        sets.push("source_seen = ?");
+        args.push(seenText);
+        this.bump(t.id, undefined, sets.join(", "), args);
+        if (reask) this.askFromImport(who, t.id, it);
+        this.log(who, "task", t.id, "import", {
+          source,
+          ref: it.ref,
+          title: it.title,
+          change,
+          ...changed,
+        });
+        if (change === "close") r.closed++;
+        else if (change === "reopen") r.reopened++;
+        else r.updated++;
+      }
+    })();
+    return r;
+  }
+
+  private askFromImport(who: Who, taskId: string, it: ImportItem) {
+    this.askDecision(who, taskId, {
+      question: it.title,
+      options: it.options,
+      recommended: it.recommended,
+      basis: it.basis,
+    });
+  }
+
+  findBySource(source: string, ref: string): Task | undefined {
+    return this.db
+      .prepare(
+        "SELECT * FROM tasks WHERE workspace_id = ? AND source = ? AND source_ref = ? AND deleted_at IS NULL",
+      )
+      .get(this.workspace, source, ref) as Task | undefined;
+  }
+
+  // ── 결정함 (M1-4) ──
+
+  // 정할 것을 묻는다: 질문, 선택지, 추천, 근거. 할 일은 「내 결정 기다림」으로 멈춘다.
+  // 이미 열린 질문이 있으면 그 질문을 고친다 (한 할 일에 열린 질문은 하나)
+  askDecision(who: Who, taskId: string, ask: DecisionAsk): void {
+    const { actor } = norm(who);
+    const question = ask.question.trim();
+    if (!question) throw new BadInput("질문이 비어 있음");
+    const options = [...new Set((ask.options ?? []).map((o) => o.trim()).filter(Boolean))];
+    this.db.transaction(() => {
+      const t = this.mustTask(taskId);
+      if (t.status === "done") {
+        throw new RuleViolation("decision-done", "끝난 일에는 정할 것을 붙이지 않는다");
+      }
+      const open = this.openDecision(taskId);
+      if (open) {
+        this.db
+          .prepare(
+            "UPDATE decisions SET question = ?, options = ?, recommended = ?, basis = ? WHERE id = ?",
+          )
+          .run(
+            question,
+            JSON.stringify(options),
+            ask.recommended ?? null,
+            ask.basis ?? null,
+            open.id,
+          );
+      } else {
+        this.db
+          .prepare(
+            `INSERT INTO decisions (id, workspace_id, task_id, question, options, recommended, basis, asked_by, asked_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            crypto.randomUUID(),
+            this.workspace,
+            taskId,
+            question,
+            JSON.stringify(options),
+            ask.recommended ?? null,
+            ask.basis ?? null,
+            actor,
+            this.now(),
+          );
+      }
+      if (t.blocked_reason !== "my_decision") {
+        this.bump(taskId, undefined, "blocked_reason = 'my_decision', held_by = NULL", []);
+      }
+      this.log(who, "task", taskId, "ask", { question, options });
+    })();
+  }
+
+  // 답한다: 고른 답을 남기고 멈춤을 푼다. 기다리던 세션은 GET 으로 답을 읽는다
+  answerDecision(who: Who, taskId: string, answer: string, note?: string | null): void {
+    const { actor } = norm(who);
+    const a = answer.trim();
+    if (!a) throw new BadInput("답이 비어 있음");
+    this.db.transaction(() => {
+      const t = this.mustTask(taskId);
+      const open = this.openDecision(taskId);
+      if (!open) throw new RuleViolation("no-open-decision", "답할 질문이 없음");
+      this.db
+        .prepare(
+          "UPDATE decisions SET answer = ?, note = ?, answered_by = ?, answered_at = ? WHERE id = ?",
+        )
+        .run(a, note?.trim() || null, actor, this.now(), open.id);
+      if (t.blocked_reason === "my_decision") {
+        this.bump(taskId, undefined, "blocked_reason = NULL, held_by = NULL", []);
+      }
+      this.log(who, "task", taskId, "decide", { question: open.question, answer: a });
+    })();
+  }
+
+  private openDecision(taskId: string): Decision | undefined {
+    return this.db
+      .prepare(
+        "SELECT * FROM decisions WHERE workspace_id = ? AND task_id = ? AND answered_at IS NULL",
+      )
+      .get(this.workspace, taskId) as Decision | undefined;
+  }
+
+  // 가장 최근 질문 (열린 것이 있으면 그것)
+  getDecision(taskId: string): Decision | undefined {
+    return (
+      this.openDecision(taskId) ??
+      (this.db
+        .prepare(
+          "SELECT * FROM decisions WHERE workspace_id = ? AND task_id = ? ORDER BY answered_at DESC LIMIT 1",
+        )
+        .get(this.workspace, taskId) as Decision | undefined)
+    );
+  }
+
+  // 열린 질문 전부 + 최근 답 (화면의 결정함, 오늘 한 장)
+  listDecisions(opts: { open?: boolean; limit?: number } = {}): Decision[] {
+    return this.db
+      .prepare(
+        `SELECT d.* FROM decisions d JOIN tasks t ON t.id = d.task_id
+         WHERE d.workspace_id = ? AND t.deleted_at IS NULL ${opts.open ? "AND d.answered_at IS NULL" : ""}
+         ORDER BY d.answered_at IS NOT NULL, COALESCE(d.answered_at, d.asked_at) DESC LIMIT ?`,
+      )
+      .all(this.workspace, opts.limit ?? 200) as Decision[];
+  }
+
+  // ── 기능 스위치 (M1-4) ──
+
+  listSettings(): Setting[] {
+    const rows = this.db
+      .prepare("SELECT * FROM settings WHERE workspace_id = ?")
+      .all(this.workspace) as {
+      name: string;
+      enabled: number;
+      reason: string | null;
+      changed_by: string;
+      changed_kind: string | null;
+      changed_at: string;
+    }[];
+    return (Object.keys(SWITCHES) as SwitchName[]).map((name) => {
+      const r = rows.find((x) => x.name === name);
+      return {
+        name,
+        label: SWITCHES[name],
+        enabled: r ? r.enabled === 1 : true,
+        reason: r?.reason ?? null,
+        changedBy: r?.changed_by ?? null,
+        changedKind: r?.changed_kind ?? null,
+        changedAt: r?.changed_at ?? null,
+      };
+    });
+  }
+
+  isOn(name: SwitchName): boolean {
+    return this.listSettings().find((s) => s.name === name)?.enabled ?? true;
+  }
+
+  // 작가와 AI 모두 바꿀 수 있다 (작가 결정 2026-11-13 「AI도 바꿀 수 있게」). AI 는 이유 한 줄이 필수
+  setSetting(who: Who, name: string, enabled: boolean, reason?: string | null): Setting {
+    if (!(name in SWITCHES)) throw new NotFound(`없는 스위치: ${name}`);
+    const { actor, kind } = norm(who);
+    const why = reason?.trim() || null;
+    if (kind === "ai" && !why) {
+      throw new RuleViolation("reason-required", "AI 가 스위치를 바꿀 때는 이유 한 줄이 필요");
+    }
+    this.db
+      .prepare(
+        `INSERT INTO settings (workspace_id, name, enabled, reason, changed_by, changed_kind, changed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (workspace_id, name) DO UPDATE SET enabled = excluded.enabled, reason = excluded.reason,
+           changed_by = excluded.changed_by, changed_kind = excluded.changed_kind, changed_at = excluded.changed_at`,
+      )
+      .run(this.workspace, name, enabled ? 1 : 0, why, actor, kind, this.now());
+    return this.listSettings().find((s) => s.name === name) as Setting;
+  }
+
+  // ── 날짜별 사용 기록 (M1-5) ──
+
+  // 사람 출입증으로 부른 그날 첫 시각만 남긴다 (이미 있으면 그대로)
+  markOpened(day: string): void {
+    this.db
+      .prepare(
+        "INSERT OR IGNORE INTO usage_days (workspace_id, day, first_opened_at) VALUES (?, ?, ?)",
+      )
+      .run(this.workspace, day, this.now());
+  }
+
+  // 한국 날짜 from ~ to (둘 다 포함) 날마다: 처음 연 시각, 작가가 바꾼 수, 고른 결정 수, AI 가 바꾼 수, 가져오기 수
+  usage(from: string, to: string): UsageDay[] {
+    const start = kstDayStart(from);
+    const end = kstDayStart(to, 1);
+    const dayOf = (iso: string) =>
+      new Date(Date.parse(iso) + 9 * 3600_000).toISOString().slice(0, 10);
+    const days = new Map<string, UsageDay>();
+    for (let t = Date.parse(start); t < Date.parse(end); t += 86_400_000) {
+      const d = dayOf(new Date(t).toISOString());
+      days.set(d, {
+        day: d,
+        firstOpenedAt: null,
+        authorChanges: 0,
+        decisions: 0,
+        aiChanges: 0,
+        imports: 0,
+      });
+    }
+    for (const r of this.db
+      .prepare(
+        "SELECT day, first_opened_at FROM usage_days WHERE workspace_id = ? AND day >= ? AND day <= ?",
+      )
+      .all(this.workspace, from, to) as { day: string; first_opened_at: string }[]) {
+      const u = days.get(r.day);
+      if (u) u.firstOpenedAt = r.first_opened_at;
+    }
+    for (const r of this.db
+      .prepare(
+        "SELECT at, actor_kind, action FROM change_log WHERE workspace_id = ? AND at >= ? AND at < ?",
+      )
+      .all(this.workspace, start, end) as {
+      at: string;
+      actor_kind: string | null;
+      action: string;
+    }[]) {
+      const u = days.get(dayOf(r.at));
+      if (!u) continue;
+      if (r.action === "import") u.imports++;
+      else if (r.actor_kind === "human") {
+        u.authorChanges++;
+        if (r.action === "decide") u.decisions++;
+      } else if (r.actor_kind === "ai") u.aiChanges++;
+    }
+    return [...days.values()];
+  }
+
   // ── 변경 기록 ──
 
-  listChanges(filter: { actor?: string; limit?: number; beforeId?: number } = {}): ChangeRow[] {
+  // 거르기 (M1-7): 누가, 어떤 종류의 출입증이, 어느 항목을, 어느 날부터 어느 날까지 (한국 날짜)
+  listChanges(filter: ChangeFilter = {}): ChangeRow[] {
     const where = ["workspace_id = ?"];
     const args: unknown[] = [this.workspace];
     if (filter.actor) {
       where.push("actor = ?");
       args.push(filter.actor);
+    }
+    if (filter.actorKind) {
+      where.push("actor_kind = ?");
+      args.push(filter.actorKind);
+    }
+    if (filter.entity) {
+      where.push("entity = ?");
+      args.push(filter.entity);
+    }
+    if (filter.entityId) {
+      where.push("entity_id = ?");
+      args.push(filter.entityId);
+    }
+    if (filter.since) {
+      where.push("at >= ?");
+      args.push(kstDayStart(filter.since));
+    }
+    if (filter.until) {
+      where.push("at < ?");
+      args.push(kstDayStart(filter.until, 1));
     }
     if (filter.beforeId !== undefined) {
       where.push("id < ?");
@@ -604,6 +1107,28 @@ export class Store {
     return this.db
       .prepare(`SELECT * FROM change_log WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ?`)
       .all(...args) as ChangeRow[];
+  }
+
+  // ── 오늘 고정과 건너뛰기 (날짜별, M1-7) ──
+
+  getDay(day: string): { pinnedTaskId: string | null; skipped: string[] } {
+    const row = this.db
+      .prepare("SELECT pinned_task_id, skipped FROM day_state WHERE workspace_id = ? AND day = ?")
+      .get(this.workspace, day) as { pinned_task_id: string | null; skipped: string } | undefined;
+    return row
+      ? { pinnedTaskId: row.pinned_task_id, skipped: JSON.parse(row.skipped) as string[] }
+      : { pinnedTaskId: null, skipped: [] };
+  }
+
+  setDay(day: string, state: { pinnedTaskId: string | null; skipped: string[] }): void {
+    const skipped = [...new Set(state.skipped)];
+    this.db
+      .prepare(
+        `INSERT INTO day_state (workspace_id, day, pinned_task_id, skipped, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (workspace_id, day) DO UPDATE SET pinned_task_id = excluded.pinned_task_id,
+           skipped = excluded.skipped, updated_at = excluded.updated_at`,
+      )
+      .run(this.workspace, day, state.pinnedTaskId, JSON.stringify(skipped), this.now());
   }
 
   recentChanges(limit = 20): ChangeRow[] {

@@ -8,3 +8,4 @@ data/
 *.db-*
 .DS_Store
 test/e2e/out/
+web/dist-demo/

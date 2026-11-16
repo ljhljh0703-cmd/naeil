@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Continue'
 $rel = Join-Path $Current 'RELEASE'
 if (Test-Path $rel) { Write-Host ("판:        {0}" -f (Get-Content $rel -Raw).Trim()) } else { Write-Host '판:        없음 (deploy.ps1 을 먼저)' }
 Write-Host ("자료:      {0} ({1})" -f $Db, $(if (Test-Path $Db) { '있음' } else { '없음' }))
-foreach ($name in @($TaskServer, $TaskBackup)) {
+foreach ($name in @($TaskServer, $TaskBackup, $TaskImport)) {
   $t = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
   if (-not $t) { Write-Host "자동 실행: $name 등록 안 됨"; continue }
   $i = Get-ScheduledTaskInfo -TaskName $name
@@ -37,4 +37,5 @@ if ($ts) {
 } else {
   Write-Host '폰 주소:   Tailscale 이 없음'
 }
-Write-Host "기록:      $LogDir (server.log, server.err.log, service.log, backup.log)"
+Write-Host ("가져오기 설정: {0}" -f $(if (Test-Path (Join-Path $AppHome 'import.json')) { '있음' } else { '없음' }))
+Write-Host "기록:      $LogDir (server.log, server.err.log, service.log, backup.log, import.log)"

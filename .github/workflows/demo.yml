@@ -1,0 +1,62 @@
+name: demo
+
+# 공개 시연판 (M1-9): 서버 없이 브라우저 안에서 도는 판을 굽고 시험한 뒤 클라우드플레어 페이지에 올린다.
+# main 에 합치면 본판(naeil-demo.pages.dev), PR 은 미리보기 주소.
+# 저장소 비밀값 CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID 가 없으면 올리기만 건너뛴다 (docs/ops/demo.md)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    env:
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PROJECT: naeil-demo
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: 굽기와 시험
+        run: npm run e2e:demo
+      - name: 캡처 올리기
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-out
+          path: test/e2e/out/
+          retention-days: 14
+      - name: 비밀값 없으면 알림
+        if: env.CF_TOKEN == '' || env.CF_ACCOUNT == ''
+        run: echo "::notice::클라우드플레어 비밀값이 없어 올리기를 건너뜀 (docs/ops/demo.md)"
+      - name: 페이지 프로젝트 만들기 (처음 한 번, 이미 있으면 넘어감)
+        if: env.CF_TOKEN != '' && env.CF_ACCOUNT != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ env.CF_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CF_ACCOUNT }}
+        run: npx -y wrangler@4 pages project create "$PROJECT" --production-branch=main || true
+      - name: 올리기
+        id: deploy
+        if: env.CF_TOKEN != '' && env.CF_ACCOUNT != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ env.CF_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CF_ACCOUNT }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          npx -y wrangler@4 pages deploy web/dist-demo --project-name="$PROJECT" --branch="$BRANCH" --commit-dirty=true | tee deploy.log
+          url=$(grep -Eo 'https://[a-z0-9.-]+\.pages\.dev' deploy.log | tail -1)
+          echo "시연판 주소: $url" >> "$GITHUB_STEP_SUMMARY"

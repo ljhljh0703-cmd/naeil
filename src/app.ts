@@ -9,13 +9,14 @@ import Fastify, {
   type FastifyRequest,
   type RouteHandlerMethod,
 } from "fastify";
-import { findKey, type KeyInfo } from "./auth.js";
+import { findKey, type KeyInfo, type KeyKind } from "./auth.js";
 import { backupState } from "./backup-files.js";
 import { decodeCursor, encodeCursor } from "./cursor.js";
 import { openDb } from "./db/connection.js";
 import {
   type BlockedReason,
-  type ChangeRow,
+  type ChangeFilter,
+  type Decision,
   type Milestone,
   type MilestonePatch,
   type Project,
@@ -25,11 +26,22 @@ import {
   type Task,
   type TaskPatch,
 } from "./db/store.js";
-import { AppError, ERROR_DOCS, NotFound, Unauthorized, VersionMismatch } from "./errors.js";
+import {
+  AppError,
+  BadInput,
+  ERROR_DOCS,
+  NotFound,
+  RuleViolation,
+  Unauthorized,
+  VersionMismatch,
+} from "./errors.js";
+import { buildHandoff } from "./handoff.js";
 import { type DbState, dbChecker, type WebState } from "./health.js";
 import { IdempotencyStore, requestHash } from "./idempotency.js";
 import { VERSION } from "./paths.js";
+import { buildToday, etag, toChange, toDecision, toMilestone, toProject, toTask } from "./shape.js";
 import { routeSchema, specSchemaBundle, toFastifyPath } from "./spec.js";
+import { kstDate } from "./today.js";
 
 // 옛 방식(CommonJS) 꾸러미라 .default 로 꺼낸다
 const Ajv = AjvModule.default;
@@ -40,7 +52,7 @@ export const TAGLINE = "내 일은 naeil에서";
 declare module "fastify" {
   interface FastifyRequest {
     key: KeyInfo | null;
-    who: { actor: string; session: string | null };
+    who: { actor: string; session: string | null; kind: KeyKind };
   }
 }
 
@@ -58,57 +70,8 @@ export type AppOptions = {
   clock?: () => Date;
 };
 
-// ── 바깥으로 나가는 모양 (명세서: 낙타 표기, 세계 표준시) ──
-
-export const toProject = (p: Project) => ({
-  id: p.id,
-  name: p.name,
-  createdAt: p.created_at,
-  updatedAt: p.updated_at,
-  deletedAt: p.deleted_at,
-});
-
-export const toMilestone = (m: Milestone) => ({
-  id: m.id,
-  projectId: m.project_id,
-  name: m.name,
-  dueAt: m.due_at,
-  etag: etag(m),
-  createdAt: m.created_at,
-  updatedAt: m.updated_at,
-  deletedAt: m.deleted_at,
-});
-
-export const toTask = (t: Task) => ({
-  id: t.id,
-  projectId: t.project_id,
-  milestoneId: t.milestone_id,
-  title: t.title,
-  status: t.status,
-  blockedReason: t.blocked_reason,
-  heldBy: t.held_by,
-  dueAt: t.due_at,
-  source: t.source,
-  sourceRef: t.source_ref,
-  externalText: t.external_text === 1,
-  body: t.body,
-  createdAt: t.created_at,
-  updatedAt: t.updated_at,
-  deletedAt: t.deleted_at,
-});
-
-export const toChange = (c: ChangeRow) => ({
-  id: c.id,
-  at: c.at,
-  actor: c.actor,
-  session: c.session,
-  entity: c.entity,
-  entityId: c.entity_id,
-  action: c.action,
-  details: c.details ? JSON.parse(c.details) : null,
-});
-
-const etag = (t: { version: number }) => `"v${t.version}"`;
+// 바깥으로 나가는 모양은 shape.ts (브라우저 시연판도 같은 것을 씀)
+export { toChange, toDecision, toMilestone, toProject, toTask } from "./shape.js";
 
 // If-Match: 없으면 검사 안 함(작가 결정: 선택). 「*」 도 검사 안 함.
 // If-Match 는 강한 비교(RFC 9110): 약한 표시(W/"…")는 맞는 것으로 치지 않는다. 여러 개를 쉼표로 보내면 하나라도 맞으면 통과.
@@ -218,8 +181,20 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
   });
   app.addHook("preHandler", async (req) => {
     if (!req.key) return;
+    // 사람 출입증으로 그날 처음 부른 시각 (M1-5 사용 기록). 기록 실패가 요청을 막지 않게
+    if (req.key.kind === "human") {
+      try {
+        new Store(db, req.key.workspace, clock).markOpened(kstDate(clock()));
+      } catch (err) {
+        req.log.warn({ err }, "사용 기록 실패");
+      }
+    }
     const session = req.headers["x-naeil-session"];
-    req.who = { actor: req.key.name, session: typeof session === "string" ? session : null };
+    req.who = {
+      actor: req.key.name,
+      session: typeof session === "string" ? session : null,
+      kind: req.key.kind,
+    };
   });
   app.addHook("onSend", async (_req, reply) => {
     if (reply.statusCode === 401) reply.header("WWW-Authenticate", "Bearer");
@@ -479,21 +454,102 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 
   // ── 변경 기록 (읽기만) ──
   route("GET", "/v1/changes", async (req) => {
-    const q = req.query as { actor?: string; limit: number; cursor?: string };
-    const before = q.cursor
-      ? decodeCursor<{ i: number }>(q.cursor, (v) => Number.isInteger(v?.i))
+    const { cursor, limit, ...filter } = req.query as ChangeFilter & {
+      limit: number;
+      cursor?: string;
+    };
+    const before = cursor
+      ? decodeCursor<{ i: number }>(cursor, (v) => Number.isInteger(v?.i))
       : undefined;
-    const rows = storeFor(req).listChanges({
-      actor: q.actor,
-      limit: q.limit + 1,
-      beforeId: before?.i,
-    });
+    const q = { limit };
+    const rows = storeFor(req).listChanges({ ...filter, limit: limit + 1, beforeId: before?.i });
     const page = rows.slice(0, q.limit);
     const last = page.at(-1);
     return {
       items: page.map(toChange),
       nextCursor: rows.length > q.limit && last ? encodeCursor({ i: last.id }) : null,
     };
+  });
+
+  // ── 오늘 (M1-7): 지금 할 것, 내가 정할 것, 마감 가까운 것을 서버가 계산 ──
+  const todayBody = (req: FastifyRequest, day: string) => buildToday(storeFor(req), day, clock());
+
+  route("GET", "/v1/today", async (req) => {
+    const q = req.query as { day?: string };
+    return todayBody(req, q.day ?? kstDate(clock()));
+  });
+
+  route("PUT", "/v1/today", async (req) => {
+    const q = req.query as { day?: string };
+    const day = q.day ?? kstDate(clock());
+    const b = req.body as { pinnedTaskId: string | null; skipped: string[] };
+    storeFor(req).setDay(day, b);
+    return todayBody(req, day);
+  });
+
+  // ── 결정함 (M1-4) ──
+  route("GET", "/v1/decisions", async (req) => {
+    const q = req.query as { open?: boolean; limit: number };
+    return { items: storeFor(req).listDecisions(q).map(toDecision) };
+  });
+
+  route("GET", "/v1/tasks/{taskId}/decision", async (req) => {
+    const { taskId } = req.params as { taskId: string };
+    const s = storeFor(req);
+    if (!s.getTask(taskId)) throw new NotFound(`할 일이 없음: ${taskId}`);
+    const d = s.getDecision(taskId);
+    if (!d) throw new NotFound("이 할 일에 정할 것이 없음");
+    return toDecision(d);
+  });
+
+  route("PUT", "/v1/tasks/{taskId}/decision", async (req) => {
+    const { taskId } = req.params as { taskId: string };
+    const s = storeFor(req);
+    s.askDecision(req.who, taskId, req.body as Parameters<Store["askDecision"]>[2]);
+    return toDecision(s.getDecision(taskId) as Decision);
+  });
+
+  route("POST", "/v1/tasks/{taskId}/decision/answer", async (req) => {
+    const { taskId } = req.params as { taskId: string };
+    const b = req.body as { answer: string; note?: string };
+    const s = storeFor(req);
+    s.answerDecision(req.who, taskId, b.answer, b.note);
+    return toDecision(s.getDecision(taskId) as Decision);
+  });
+
+  // ── 이어하기 한 장 (M1-4) ──
+  route("GET", "/v1/handoff", async (req) => {
+    const q = req.query as { projectId?: string; milestoneId?: string; taskId?: string };
+    const s = storeFor(req);
+    if (!s.isOn("handoff")) {
+      throw new RuleViolation("switch-off", "이어하기 스위치가 꺼져 있음. 설정에서 켜면 바로 됨");
+    }
+    const given = [q.projectId, q.milestoneId, q.taskId].filter(Boolean).length;
+    if (given !== 1) throw new BadInput("projectId, milestoneId, taskId 중 하나만");
+    const out = buildHandoff(s, q, clock());
+    if (!out) throw new NotFound("대상이 없음");
+    return out;
+  });
+
+  // ── 날짜별 사용 기록 (M1-5) ──
+  route("GET", "/v1/usage", async (req) => {
+    const q = req.query as { since?: string; until?: string };
+    const until = q.until ?? kstDate(clock());
+    const since =
+      q.since ?? kstDate(new Date(Date.parse(`${until}T00:00:00+09:00`) - 6 * 86_400_000));
+    if (since > until) throw new BadInput("since 가 until 보다 뒤");
+    const span = (Date.parse(until) - Date.parse(since)) / 86_400_000;
+    if (span > 92) throw new BadInput("한 번에 93일까지");
+    return { items: storeFor(req).usage(since, until) };
+  });
+
+  // ── 기능 스위치 (M1-4) ──
+  route("GET", "/v1/settings", async (req) => ({ items: storeFor(req).listSettings() }));
+
+  route("PUT", "/v1/settings/{name}", async (req) => {
+    const { name } = req.params as { name: string };
+    const b = req.body as { enabled: boolean; reason?: string };
+    return storeFor(req).setSetting(req.who, name, b.enabled, b.reason);
   });
 
   // ── 화면 ──

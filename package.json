@@ -1,6 +1,6 @@
 {
   "name": "naeil",
-  "version": "0.0.6",
+  "version": "0.1.0",
   "description": "내 일은 naeil에서 · AI 세션을 오가도 어제 한 일을 잃지 않는 1인 개발자 작업판",
   "license": "MIT",
   "private": true,
@@ -15,6 +15,7 @@
     "build": "npm run build:server && npm run build:web",
     "build:server": "tsc -p tsconfig.build.json",
     "build:web": "vite build",
+    "build:demo": "vite build -c vite.demo.config.ts",
     "prestart": "npm run build",
     "start": "node dist/server.js",
     "smoke": "npm run build && node scripts/smoke-dist.mjs",
@@ -24,11 +25,13 @@
     "test": "vitest run",
     "check": "npm run lint && npm run typecheck && npm test && npm run smoke",
     "lint:api": "npx -y @redocly/cli@1 lint docs/api/openapi.yaml",
+    "import": "tsx src/cli/import.ts",
     "key": "tsx src/cli/key.ts",
     "deploy:mac": "bash scripts/macos/deploy.sh",
     "deploy:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/deploy.ps1",
     "backup": "tsx src/cli/backup.ts",
-    "e2e": "npm run build && node test/e2e/run.mjs"
+    "e2e": "npm run build && node test/e2e/run.mjs",
+    "e2e:demo": "npm run build:demo && node test/e2e/demo.mjs"
   },
   "dependencies": {
     "@fastify/static": "^10.1.7",
@@ -47,8 +50,10 @@
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/sql.js": "^1.4.11",
     "@vitejs/plugin-react": "^6.1.2",
     "playwright": "1.63.0",
+    "sql.js": "^1.16.0",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vite": "^8.3.5",

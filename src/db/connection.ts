@@ -9,6 +9,8 @@ export function openDb(path: string): Database.Database {
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  // 켜진 서버와 가져오기 명령이 같은 파일을 쓸 때, 잠깐 잠겨 있으면 기다렸다가 쓴다 (M1-3)
+  db.pragma("busy_timeout = 5000");
   migrateUp(db);
   return db;
 }

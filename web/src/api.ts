@@ -1,5 +1,6 @@
 // 화면 → 서버. 화면은 「author」 출입증으로 부른다.
 
+import { demoCall, isDemo } from "./demo-hook.js";
 import { newKey } from "./ids.js";
 import type { BlockedReason, Status, Task } from "./today.js";
 
@@ -10,6 +11,7 @@ export type Milestone = {
   projectId: string;
   name: string;
   dueAt: string | null;
+  doneWhen?: string | null;
   etag: string;
   createdAt: string;
   updatedAt: string;
@@ -24,12 +26,60 @@ export type ApiTask = Task & {
   body: string | null;
   updatedAt: string;
   deletedAt: string | null;
+  owner?: "author" | "ai";
+  sourceUrl?: string | null;
+  progressNote?: string | null;
+};
+
+export type Decision = {
+  id: string;
+  taskId: string;
+  question: string;
+  options: string[];
+  recommended: string | null;
+  basis: string | null;
+  askedBy: string;
+  askedAt: string;
+  answer: string | null;
+  note: string | null;
+  answeredBy: string | null;
+  answeredAt: string | null;
+};
+
+export type Setting = {
+  name: "handoff";
+  label: string;
+  enabled: boolean;
+  reason: string | null;
+  changedBy: string | null;
+  changedKind: string | null;
+  changedAt: string | null;
+};
+
+// 날짜별 사용 기록 (M1-5). 처음 연 시각은 사람 출입증의 그날 첫 요청
+export type UsageDay = {
+  day: string;
+  firstOpenedAt: string | null;
+  authorChanges: number;
+  decisions: number;
+  aiChanges: number;
+  imports: number;
+};
+
+export type Notice = {
+  kind: "switch-off";
+  name: string;
+  label: string;
+  changedBy: string | null;
+  reason: string | null;
+  changedAt: string | null;
 };
 
 export type Change = {
   id: number;
   at: string;
   actor: string;
+  actorKind?: "human" | "ai" | "ci" | null;
   session: string | null;
   entity: "project" | "milestone" | "task";
   entityId: string;
@@ -40,6 +90,8 @@ export type Change = {
 const KEY_STORE = "naeil.key";
 
 export function getKey(): string | null {
+  // 시연판은 출입증 없이 바로 열림
+  if (isDemo) return "demo";
   try {
     return localStorage.getItem(KEY_STORE);
   } catch {
@@ -77,16 +129,24 @@ async function call<T>(
 ) {
   let res: Response;
   try {
-    res = await fetch(url, {
-      method,
-      headers: {
-        authorization: `Bearer ${getKey() ?? ""}`,
-        ...(body !== undefined ? { "content-type": "application/json" } : {}),
-        ...extra,
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  } catch {
+    if (demoCall) {
+      const r = await demoCall(method, url, body, extra);
+      res = new Response(r.status === 204 ? null : JSON.stringify(r.json), { status: r.status });
+    } else
+      res = await fetch(url, {
+        method,
+        headers: {
+          authorization: `Bearer ${getKey() ?? ""}`,
+          ...(body !== undefined ? { "content-type": "application/json" } : {}),
+          ...extra,
+        },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+  } catch (err) {
+    if (demoCall) {
+      console.error(err);
+      throw new ApiError(500, "시연판 안에서 오류가 났습니다. 새로 고쳐 주세요.");
+    }
     throw new ApiError(0, OFFLINE);
   }
   if (!res.ok) {
@@ -107,6 +167,17 @@ async function call<T>(
 const once = (key?: string) => ({ "idempotency-key": key ?? newKey() });
 
 type Page<T> = { items: T[]; nextCursor: string | null };
+
+export type Today = {
+  day: string;
+  now: ApiTask | null;
+  pinnedTaskId: string | null;
+  skipped: string[];
+  waitingOnMe: ApiTask[];
+  dueSoon: ApiTask[];
+  decisions?: Decision[];
+  notices?: Notice[];
+};
 
 export const api = {
   projects: () => call<{ items: Project[] }>("GET", "/v1/projects").then((r) => r.items),
@@ -158,9 +229,30 @@ export const api = {
   createMilestone: (projectId: string, input: { name: string; dueAt?: string | null }) =>
     call<Milestone>("POST", `/v1/projects/${projectId}/milestones`, input, once()),
   // 목록에서 받은 판 표시(etag)를 같이 보낸다. 다른 곳에서 먼저 바뀌었으면 412
-  updateMilestone: (m: Milestone, patch: { name?: string; dueAt?: string | null }) =>
-    call<Milestone>("PATCH", `/v1/milestones/${m.id}`, patch, { "if-match": m.etag }),
+  updateMilestone: (
+    m: Milestone,
+    patch: { name?: string; dueAt?: string | null; doneWhen?: string | null },
+  ) => call<Milestone>("PATCH", `/v1/milestones/${m.id}`, patch, { "if-match": m.etag }),
   trashMilestone: (id: string) => call<null>("DELETE", `/v1/milestones/${id}`),
+  // 결정함 (M1-4): 열린 질문과 최근 답
+  decisions: () =>
+    call<{ items: Decision[] }>("GET", "/v1/decisions?limit=200").then((r) => r.items),
+  answer: (taskId: string, answer: string) =>
+    call<Decision>("POST", `/v1/tasks/${taskId}/decision/answer`, { answer }),
+  setProgress: (id: string, progressNote: string | null) =>
+    call<ApiTask>("PATCH", `/v1/tasks/${id}`, { progressNote }),
+  handoff: (scope: { taskId?: string; milestoneId?: string; projectId?: string }) => {
+    const [k, v] = Object.entries(scope)[0] ?? [];
+    return call<{ title: string; text: string }>("GET", `/v1/handoff?${k}=${v}`);
+  },
+  settings: () => call<{ items: Setting[] }>("GET", "/v1/settings").then((r) => r.items),
+  setSetting: (name: string, enabled: boolean) =>
+    call<Setting>("PUT", `/v1/settings/${name}`, { enabled }),
+  // 서버가 계산한 오늘 (M1-7). 고정과 건너뛰기도 서버에 날짜별로
+  today: () => call<Today>("GET", "/v1/today"),
+  setToday: (state: { pinnedTaskId: string | null; skipped: string[] }) =>
+    call<Today>("PUT", "/v1/today", state),
+  usage: () => call<{ items: UsageDay[] }>("GET", "/v1/usage").then((r) => r.items),
   // 상세의 「바뀐 기록」 칸도 여기서 거른다 (최근 200줄)
   changes: (limit = 200) =>
     call<Page<Change>>("GET", `/v1/changes?limit=${limit}`).then((r) => r.items),

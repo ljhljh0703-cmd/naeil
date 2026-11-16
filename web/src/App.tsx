@@ -1,14 +1,18 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   type ApiTask,
   api,
   type Change,
+  type Decision,
   getKey,
   type Milestone,
   type Project,
+  type Setting,
   setKey,
+  type Today,
 } from "./api.js";
+import { isDemo } from "./demo-hook.js";
 import { type ActFn, CardList, DetailPanel, type OpenFn } from "./ItemViews.js";
 import { newKey } from "./ids.js";
 import {
@@ -17,13 +21,16 @@ import {
   type Ctx,
   cardOf,
   detailOf,
+  foldImports,
   type ItemRef,
+  importSummary,
   parseRef,
   refKey,
 } from "./items.js";
 import { dLabel, todayFmt } from "./labels.js";
 import { Board } from "./MilestoneBoard.js";
-import { dDay, dueFromKstDate, dueSoon, kstDate, pickNow, waitingOnMe } from "./today.js";
+import { dDay, dueFromKstDate, kstDate } from "./today.js";
+import { Usage } from "./Usage.js";
 
 type Mode = "board" | "focus";
 type Page = "today" | "milestones";
@@ -42,21 +49,6 @@ function save(key: string, value: unknown) {
   } catch {
     // 저장이 막혀도 이번 창에서는 동작
   }
-}
-
-// 오늘 하루 건너뛴 것·고정한 것 (이 브라우저에만)
-function useDayState() {
-  const storeKey = `naeil.day.${kstDate(new Date())}`;
-  const [state, setState] = useState(() =>
-    load<{ skipped: string[]; pinned: string | null }>(storeKey, { skipped: [], pinned: null }),
-  );
-  return {
-    ...state,
-    save: (next: typeof state) => {
-      setState(next);
-      save(storeKey, next);
-    },
-  };
 }
 
 // 열린 항목은 주소에 담는다: ?open=task:… (패널) · &full=1 (페이지 하나로)
@@ -113,6 +105,15 @@ export function App() {
   const [keyError, setKeyError] = useState<string>();
   const [projects, setProjects] = useState<Project[]>([]);
   const [trashedProjects, setTrashedProjects] = useState<Project[]>([]);
+  const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [settings, setSettings] = useState<Setting[]>([]);
+  // 잠깐 보였다 사라지는 알림 (예 「복사했습니다」)
+  const [info, setInfo] = useState<string>();
+  useEffect(() => {
+    if (!info) return;
+    const t = setTimeout(() => setInfo(undefined), 4000);
+    return () => clearTimeout(t);
+  }, [info]);
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [changes, setChanges] = useState<Change[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
@@ -129,7 +130,16 @@ export function App() {
   const [open, setOpen] = useState(readUrl);
   const [openList, setOpenList] = useState<ItemRef[]>([]);
   const opener = useRef<HTMLElement | null>(null);
-  const day = useDayState();
+  // 오늘 화면의 재료는 서버가 계산한다 (M1-7). 고정과 건너뛰기도 서버에 날짜별로 남아 폰과 AI 도구도 같은 것을 본다
+  const [todayData, setToday] = useState<Today | null>(null);
+  const day = {
+    skipped: todayData?.skipped ?? [],
+    pinned: todayData?.pinnedTaskId ?? null,
+    save: (next: { skipped: string[]; pinned: string | null }) =>
+      void run(async () => {
+        setToday(await api.setToday({ pinnedTaskId: next.pinned, skipped: next.skipped }));
+      }),
+  };
 
   const setMode = (m: Mode) => {
     setModeState(m);
@@ -146,13 +156,19 @@ export function App() {
 
   const reload = useCallback(async () => {
     try {
-      const [p, t, c, gone] = await Promise.all([
+      const [p, t, c, gone, td, ds, st] = await Promise.all([
         api.projects(),
         api.allTasks(),
         api.changes(),
         api.trashedProjects(),
+        api.today(),
+        api.decisions(),
+        api.settings(),
       ]);
       const m = await api.allMilestones(p);
+      setToday(td);
+      setDecisions(ds);
+      setSettings(st);
       setProjects(p);
       setTrashedProjects(gone);
       setMilestones(m);
@@ -252,11 +268,26 @@ export function App() {
     }
   };
 
+  // 이어하기 한 장을 복사. 암호화 주소가 아니면(폰 평문 주소) 클립보드 기능이 없어 예전 방식으로
+  const copyHandoff = (scope: { taskId?: string; milestoneId?: string }) =>
+    void run(async () => {
+      const h = await api.handoff(scope);
+      await copyText(h.text);
+      setInfo(`「${h.title}」 이어하기 한 장을 복사했습니다. 새 세션에 붙여 넣으세요.`);
+    });
+
   const onAction: ActFn = (ref, a, value) => {
+    if (a.id === "open-decision") {
+      openItem(ref, [ref], document.activeElement as HTMLElement);
+      return;
+    }
     if (ref.type === "milestone") {
       const m = milestones.find((x) => x.id === ref.id);
       if (!m) return;
-      if (a.id === "milestone-due") {
+      if (a.id === "handoff") copyHandoff({ milestoneId: m.id });
+      else if (a.id === "milestone-done-when") {
+        void run(() => api.updateMilestone(m, { doneWhen: value?.trim() ? value : null }));
+      } else if (a.id === "milestone-due") {
         void run(() => api.updateMilestone(m, { dueAt: value ? dueFromKstDate(value) : null }));
       } else if (a.id === "milestone-trash") {
         void run(async () => {
@@ -276,19 +307,34 @@ export function App() {
       reopen: () => api.revive(id),
       decided: () => api.unblock(id),
       "need-decision": () => api.block(id, "my_decision"),
+      "answer-text": () => api.answer(id, value ?? ""),
+      progress: () => api.setProgress(id, value?.trim() ? value : null),
       trash: async () => {
         await api.trash(id);
         if (open.ref && refKey(open.ref) === refKey(ref)) closeItem();
       },
     };
+    if (a.id === "handoff") {
+      copyHandoff({ taskId: id });
+      return;
+    }
+    if (a.id.startsWith("answer:")) {
+      const d = decisions.find((x) => x.taskId === id && !x.answeredAt);
+      const choice = d?.options[Number(a.id.slice(7))];
+      if (choice) void run(() => api.answer(id, choice));
+      return;
+    }
     const fn = byId[a.id];
     if (fn) void run(fn);
   };
 
   const now = new Date();
-  const ctx: Ctx = { tasks, changes, projects, milestones, now };
-  const skipped = useMemo(() => new Set(day.skipped), [day.skipped]);
-  const current = pickNow(tasks, { skipped, pinnedId: day.pinned });
+  const handoffOn = settings.find((x) => x.name === "handoff")?.enabled ?? true;
+  const ctx: Ctx = { tasks, changes, projects, milestones, now, decisions, handoffOn };
+  // 서버가 고른 것을 화면이 가진 같은 할 일로 찾는다 (판 표시 등이 한 곳에서 오게)
+  const byIds = (list: { id: string }[] | undefined) =>
+    (list ?? []).map((x) => tasks.find((t) => t.id === x.id)).filter((t): t is ApiTask => !!t);
+  const current = byIds(todayData?.now ? [todayData.now] : [])[0] ?? null;
   const cards = (list: ApiTask[], quick?: (t: ApiTask) => Action | undefined): CardModel[] =>
     list
       .map((t): CardModel | null => {
@@ -297,17 +343,22 @@ export function App() {
       })
       .filter((c): c is CardModel => !!c);
 
-  const decideCards = cards(waitingOnMe(tasks) as ApiTask[], () => ({
-    id: "decided",
-    label: "정했음",
-  }));
-  const soonCards = cards(dueSoon(tasks, now) as ApiTask[]).map((c) => ({
+  // 질문이 있으면 「고르기」(상세에서 선택지), 없으면 「정했음」
+  const decideCards = cards(byIds(todayData?.waitingOnMe), (t) =>
+    decisions.some((d) => d.taskId === t.id && !d.answeredAt)
+      ? { id: "open-decision", label: "고르기" }
+      : { id: "decided", label: "정했음" },
+  );
+  const soonCards = cards(byIds(todayData?.dueSoon)).map((c) => ({
     ...c,
     status: undefined,
   }));
-  const recentCards = changes
+  const recentCards = foldImports(changes)
     .slice(0, 6)
-    .map((c) => cardOf(ctx, { type: "change", id: String(c.id) }))
+    .map((row) => {
+      const c = cardOf(ctx, { type: "change", id: String(row.change.id) });
+      return c && row.group ? { ...c, title: importSummary(row.group) } : c;
+    })
     .filter((c): c is CardModel => !!c);
   const allCards = cards(tasks, (t) =>
     t.status !== "done" ? { id: "done", label: "끝냄" } : undefined,
@@ -358,29 +409,41 @@ export function App() {
   );
 
   const header = (
-    <header className="top">
-      <div>
-        <h1>내일은내일</h1>
-        <p className="tagline">내 일은 naeil에서</p>
-      </div>
-      <div className="top-right">
-        <nav aria-label="화면">
-          <fieldset className="seg">
-            <button type="button" aria-pressed={page === "today"} onClick={() => setPage("today")}>
-              오늘
-            </button>
-            <button
-              type="button"
-              aria-pressed={page === "milestones"}
-              onClick={() => setPage("milestones")}
-            >
-              마일스톤
-            </button>
-          </fieldset>
-        </nav>
-        <p className="date">{todayFmt.format(now)}</p>
-      </div>
-    </header>
+    <>
+      {isDemo && (
+        <p className="demo-banner">
+          시연판입니다. 예시 자료로 돌아가고, 새로 고치면 처음으로 돌아갑니다.{" "}
+          <a href="https://github.com/ljhljh0703-cmd/naeil">내 컴퓨터에 설치하는 법</a>
+        </p>
+      )}
+      <header className="top">
+        <div>
+          <h1>내일은내일</h1>
+          <p className="tagline">내 일은 naeil에서</p>
+        </div>
+        <div className="top-right">
+          <nav aria-label="화면">
+            <fieldset className="seg">
+              <button
+                type="button"
+                aria-pressed={page === "today"}
+                onClick={() => setPage("today")}
+              >
+                오늘
+              </button>
+              <button
+                type="button"
+                aria-pressed={page === "milestones"}
+                onClick={() => setPage("milestones")}
+              >
+                마일스톤
+              </button>
+            </fieldset>
+          </nav>
+          <p className="date">{todayFmt.format(now)}</p>
+        </div>
+      </header>
+    </>
   );
 
   const modeBar = (
@@ -499,6 +562,26 @@ export function App() {
     <div className={open.ref ? "layout with-panel" : "layout"}>
       <main className="shell">
         {header}
+        {(todayData?.notices ?? []).map((n) => (
+          <div key={n.name} className="notice" role="status">
+            <span>
+              <strong>{n.changedBy}</strong> 가 <strong>{n.label}</strong> 스위치를 껐습니다
+              {n.reason ? `: ${n.reason}` : ""}
+            </span>
+            <button
+              type="button"
+              className="small"
+              onClick={() => void run(() => api.setSetting(n.name, true))}
+            >
+              다시 켜기
+            </button>
+          </div>
+        ))}
+        {info && (
+          <p className="info" role="status">
+            {info}
+          </p>
+        )}
         {error && (
           <div className="error" role="alert">
             <span>{error}</span>
@@ -626,16 +709,30 @@ export function App() {
         )}
 
         <footer className="foot">
-          <button
-            type="button"
-            className="ghost small"
-            onClick={() => {
-              setKey(null);
-              setHasKey(false);
-            }}
-          >
-            출입증 바꾸기
-          </button>
+          <Usage />
+          {settings.map((st) => (
+            <button
+              key={st.name}
+              type="button"
+              className="ghost small"
+              aria-pressed={st.enabled}
+              onClick={() => void run(() => api.setSetting(st.name, !st.enabled))}
+            >
+              {st.label} {st.enabled ? "켜짐" : "꺼짐"}
+            </button>
+          ))}
+          {!isDemo && (
+            <button
+              type="button"
+              className="ghost small"
+              onClick={() => {
+                setKey(null);
+                setHasKey(false);
+              }}
+            >
+              출입증 바꾸기
+            </button>
+          )}
         </footer>
       </main>
       {panel}
@@ -734,4 +831,22 @@ function AddTask({
       </form>
     </section>
   );
+}
+
+// 클립보드에 글 넣기. 암호화 주소(https, localhost)가 아니면 navigator.clipboard 가 없어 예전 방식으로
+async function copyText(text: string) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.select();
+  const ok = document.execCommand("copy");
+  area.remove();
+  if (!ok) throw new Error("복사하지 못했습니다. 브라우저가 막았을 수 있습니다.");
 }

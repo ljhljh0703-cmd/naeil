@@ -18,6 +18,17 @@ export const ACTION: Record<string, string> = {
   unblock: "멈춤 풀림",
   trash: "휴지통",
   revive: "되살림",
+  import: "가져옴",
+  ask: "정할 것 물음",
+  decide: "정함",
+};
+
+// 가져오기 기록 한 줄의 「무엇이 바뀌었나」 (M1-3)
+export const IMPORT_CHANGE: Record<string, string> = {
+  create: "가져옴",
+  update: "출처에서 고침",
+  close: "출처에서 끝남",
+  reopen: "출처에서 다시 열림",
 };
 
 const timeFmt = new Intl.DateTimeFormat("ko-KR", {

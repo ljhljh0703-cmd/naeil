@@ -364,6 +364,29 @@ code {
 .foot {
   display: flex;
   justify-content: flex-end;
+  align-items: flex-start;
+}
+
+/* 최근 7일 (M1-5): 맨 아래 접힌 한 줄 */
+.usage {
+  margin-right: auto;
+  font-size: var(--t-small);
+  color: var(--ink-2);
+}
+.usage summary {
+  cursor: pointer;
+  padding: 2px 0;
+}
+.usage ol {
+  list-style: none;
+  margin: var(--s2) 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.usage-day {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
 }
 
 /* ── 누를 수 있는 카드 (2026-10-26) ──
@@ -940,4 +963,42 @@ div.error {
 .row.spread {
   justify-content: space-between;
   align-items: center;
+}
+
+/* 잠깐 알림, AI 가 끈 스위치 알림 (M1-4) */
+.info {
+  margin: 0;
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-ctl);
+  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+  font-size: var(--t-small);
+}
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-ctl);
+  background: color-mix(in srgb, var(--late) 8%, var(--card));
+  font-size: var(--t-small);
+}
+.foot {
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+
+/* 공개 시연판 띠 (M1-9) */
+.demo-banner {
+  margin: 0 0 var(--s3);
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-ctl);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-size: var(--t-small);
+}
+.demo-banner a {
+  color: var(--accent);
 }
