@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { ApiTask, Change, Milestone } from "./api.js";
-import { type Ctx, cardOf, detailOf, hrefFor, parseRef, refKey } from "./items.js";
+import {
+  type Ctx,
+  cardOf,
+  detailOf,
+  foldImports,
+  hrefFor,
+  importSummary,
+  parseRef,
+  refKey,
+  taskChips,
+} from "./items.js";
 
 const now = new Date("2026-10-26T03:00:00Z");
 const task = (over: Partial<ApiTask> = {}): ApiTask => ({
@@ -156,6 +166,43 @@ describe("한 일 카드·상세", () => {
       type: "task",
       id: task().id,
     });
+  });
+});
+
+describe("가져오기 (M1-3)", () => {
+  const imp = (id: number, at: string, kind: string, actor = "import") =>
+    change({
+      id,
+      at,
+      actor,
+      session: null,
+      action: "import",
+      details: { source: "github", ref: `o/r#${id}`, title: `이슈 ${id}`, change: kind },
+    });
+  it("같은 회차(같은 누가, 10분 안)의 가져오기 줄은 한 줄로 접히고, 사이에 다른 일이 끼면 나뉨", () => {
+    const rows = foldImports([
+      imp(9, "2026-11-16T03:05:00Z", "create"),
+      imp(8, "2026-11-16T03:04:00Z", "create"),
+      imp(7, "2026-11-16T03:03:00Z", "close"),
+      change({ id: 6, at: "2026-11-16T03:02:00Z" }),
+      imp(5, "2026-11-16T02:00:00Z", "reopen"),
+      imp(4, "2026-11-16T01:00:00Z", "create"),
+    ]);
+    expect(rows.map((r) => [r.change.id, r.group?.length ?? 1])).toEqual([
+      [9, 3],
+      [6, 1],
+      [5, 1],
+      [4, 1],
+    ]);
+    expect(importSummary(rows[0]?.group ?? [])).toBe("가져오기 3건: 가져옴 2, 출처에서 끝남 1");
+  });
+  it("가져온 줄 하나는 무엇이 바뀌었나로, AI 몫 할 일은 표시", () => {
+    const c = cardOf(ctx({ changes: [imp(7, "2026-11-16T03:00:00Z", "close")] }), {
+      type: "change",
+      id: "7",
+    });
+    expect(c?.title).toContain("출처에서 끝남");
+    expect(taskChips(task({ owner: "ai" }), ctx()).map((x) => x.label)).toContain("AI 몫");
   });
 });
 

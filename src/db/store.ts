@@ -59,6 +59,32 @@ export type Task = {
   updated_at: string;
   deleted_at: string | null;
   trashed_with?: string | null;
+  // 006: 작가 몫(author)인가 AI 몫(ai)인가, 가져온 일의 원문 주소
+  owner?: Owner;
+  source_url?: string | null;
+  source_seen?: string | null;
+};
+
+export type Owner = "author" | "ai";
+
+// 가져올 일 하나 (M1-3). 출처 + 출처 번호가 같으면 같은 일로 보고 새로 넣지 않고 고친다
+export type ImportItem = {
+  ref: string;
+  title: string;
+  state: "open" | "done";
+  owner: Owner;
+  decision?: boolean; // 작가가 정할 일이면 「내 결정 기다림」으로
+  dueAt?: string | null;
+  body?: string | null;
+  url?: string | null;
+};
+export type ImportResult = {
+  created: number;
+  updated: number;
+  closed: number;
+  reopened: number;
+  same: number;
+  skipped: number; // 작가가 휴지통에 넣은 것은 다시 꺼내지 않음
 };
 
 export type ChangeRow = {
@@ -108,6 +134,7 @@ export type TaskPatch = {
   status?: Status;
   dueAt?: string | null;
   milestoneId?: string | null;
+  owner?: Owner;
 };
 
 type Clock = () => Date;
@@ -386,6 +413,8 @@ export class Store {
       sourceRef?: string;
       externalText?: boolean;
       body?: string;
+      owner?: Owner;
+      sourceUrl?: string;
     },
   ): string {
     if (!this.getProject(input.projectId))
@@ -415,13 +444,15 @@ export class Store {
       sourceRef?: string;
       externalText?: boolean;
       body?: string;
+      owner?: Owner;
+      sourceUrl?: string;
     },
   ) {
     try {
       this.db
         .prepare(
-          `INSERT INTO tasks (id, workspace_id, project_id, milestone_id, title, due_at, source, source_ref, external_text, body, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO tasks (id, workspace_id, project_id, milestone_id, title, due_at, source, source_ref, external_text, body, created_at, updated_at, owner, source_url)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -437,6 +468,8 @@ export class Store {
           input.body ?? null,
           t,
           t,
+          input.owner ?? "author",
+          input.sourceUrl ?? null,
         );
     } catch (err) {
       if ((err as { code?: string }).code === "SQLITE_CONSTRAINT_UNIQUE") {
@@ -535,6 +568,11 @@ export class Store {
       args.push(patch.milestoneId);
       changed.milestone_id = patch.milestoneId;
     }
+    if (patch.owner !== undefined && patch.owner !== before.owner) {
+      sets.push("owner = ?");
+      args.push(patch.owner);
+      changed.owner = patch.owner;
+    }
     if (patch.status !== undefined) {
       sets.push("status = ?");
       args.push(patch.status);
@@ -609,6 +647,141 @@ export class Store {
       );
       this.log(who, "task", id, "revive");
     })();
+  }
+
+  // ── 가져오기 (M1-3) ──
+
+  // 이름으로 프로젝트를 찾고, 없으면 만든다 (가져오기 묶음마다 프로젝트 하나)
+  ensureProject(who: Who, name: string): string {
+    const found = this.db
+      .prepare(
+        "SELECT id FROM projects WHERE workspace_id = ? AND name = ? AND deleted_at IS NULL ORDER BY created_at LIMIT 1",
+      )
+      .get(this.workspace, name) as { id: string } | undefined;
+    return found?.id ?? this.createProject(who, name);
+  }
+
+  // 출처 하나의 일들을 넣거나 고친다. 두 번 돌려도 같은 결과 (출처 + 출처 번호 기준).
+  // 한 묶음으로 저장해, 중간에 실패하면 이번 회차는 하나도 남기지 않는다.
+  // 출처에서 바뀐 칸만 고친다: 지난번에 출처에서 본 값(source_seen)과 다를 때만.
+  // 작업판에서 끝냈거나 이름을 바꾼 것을, 출처가 그대로라는 이유로 되돌리지 않는다.
+  importItems(who: Who, source: string, projectId: string, items: ImportItem[]): ImportResult {
+    const r: ImportResult = { created: 0, updated: 0, closed: 0, reopened: 0, same: 0, skipped: 0 };
+    this.db.transaction(() => {
+      this.mustProject(projectId);
+      for (const it of items) {
+        const seen = {
+          state: it.state,
+          title: it.title,
+          due: it.dueAt ? utc(it.dueAt) : null,
+          body: it.body ?? null,
+          url: it.url ?? null,
+          owner: it.owner,
+          decision: !!it.decision,
+        };
+        const t = this.db
+          .prepare("SELECT * FROM tasks WHERE workspace_id = ? AND source = ? AND source_ref = ?")
+          .get(this.workspace, source, it.ref) as Task | undefined;
+        if (!t) {
+          const id = randomUUID();
+          this.insertTask(id, this.now(), {
+            projectId,
+            title: it.title,
+            dueAt: it.dueAt ?? undefined,
+            source,
+            sourceRef: it.ref,
+            body: it.body ?? undefined,
+            owner: it.owner,
+            sourceUrl: it.url ?? undefined,
+          });
+          const extra =
+            it.state === "done"
+              ? ", status = 'done'"
+              : it.decision
+                ? ", blocked_reason = 'my_decision'"
+                : "";
+          this.bump(id, undefined, `source_seen = ?${extra}`, [JSON.stringify(seen)]);
+          this.log(who, "task", id, "import", {
+            source,
+            ref: it.ref,
+            title: it.title,
+            change: "create",
+          });
+          r.created++;
+          continue;
+        }
+        // 작가가 휴지통에 넣은 것은 출처에 남아 있어도 다시 꺼내지 않는다
+        if (t.deleted_at) {
+          r.skipped++;
+          continue;
+        }
+        const prev = (t.source_seen ? JSON.parse(t.source_seen) : {}) as Partial<typeof seen>;
+        const moved = <K extends keyof typeof seen>(k: K) => prev[k] !== seen[k];
+        const sets: string[] = [];
+        const args: unknown[] = [];
+        const changed: Record<string, unknown> = {};
+        const field = (col: string, key: keyof typeof seen, current: unknown, label?: string) => {
+          if (moved(key) && seen[key] !== current) {
+            sets.push(`${col} = ?`);
+            args.push(seen[key]);
+            if (label) changed[label] = seen[key];
+          }
+        };
+        field("title", "title", t.title, "title");
+        field("due_at", "due", t.due_at, "due_at");
+        field("body", "body", t.body);
+        field("source_url", "url", t.source_url ?? null);
+        field("owner", "owner", t.owner, "owner");
+        let change = "update";
+        if (moved("state") && seen.state === "done" && t.status !== "done") {
+          sets.push("status = 'done'", "blocked_reason = NULL", "held_by = NULL");
+          change = "close";
+        } else if (moved("state") && seen.state === "open" && t.status === "done") {
+          // 출처에서 다시 열린 것 (놓친 것 부활)
+          sets.push("status = 'todo'");
+          change = "reopen";
+        }
+        if (
+          moved("decision") &&
+          seen.decision &&
+          seen.state === "open" &&
+          !t.blocked_reason &&
+          change !== "close"
+        ) {
+          sets.push("blocked_reason = 'my_decision'");
+        }
+        const seenText = JSON.stringify(seen);
+        if (!sets.length) {
+          // 고칠 것은 없어도 본 값은 새로 적는다 (다음 비교의 기준)
+          if (seenText !== t.source_seen)
+            this.db.prepare("UPDATE tasks SET source_seen = ? WHERE id = ?").run(seenText, t.id);
+          r.same++;
+          continue;
+        }
+        sets.push("source_seen = ?");
+        args.push(seenText);
+        this.bump(t.id, undefined, sets.join(", "), args);
+        this.log(who, "task", t.id, "import", {
+          source,
+          ref: it.ref,
+          title: it.title,
+          change,
+          ...changed,
+        });
+        if (change === "close") r.closed++;
+        else if (change === "reopen") r.reopened++;
+        else r.updated++;
+      }
+    })();
+    return r;
+  }
+
+  findBySource(source: string, ref: string): Task | undefined {
+    return this.db
+      .prepare(
+        "SELECT * FROM tasks WHERE workspace_id = ? AND source = ? AND source_ref = ? AND deleted_at IS NULL",
+      )
+      .get(this.workspace, source, ref) as Task | undefined;
   }
 
   // ── 변경 기록 ──

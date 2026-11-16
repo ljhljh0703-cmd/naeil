@@ -13,6 +13,7 @@ $Db = Join-Path $AppHome 'naeil.db'
 $Port = if ($env:NAEIL_PORT) { [int]$env:NAEIL_PORT } else { 3700 }
 $TaskServer = 'naeil-server'
 $TaskBackup = 'naeil-backup'
+$TaskImport = 'naeil-import'
 $HealthUrl = "http://127.0.0.1:$Port/health"
 
 # 바깥 프로그램(git, powercfg 등)을 오류 출력은 버리고 돌린다.

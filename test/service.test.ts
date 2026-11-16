@@ -29,6 +29,10 @@ function makeHome(): string {
   writeFileSync(join(home, "current", "package.json"), '{"type":"commonjs"}');
   writeFileSync(join(home, "current", "dist", "server.js"), FAKE_SERVER);
   writeFileSync(
+    join(home, "current", "dist", "cli", "import.js"),
+    'require("node:fs").writeFileSync("import-ran.txt", process.env.NAEIL_DB); process.exit(0);',
+  );
+  writeFileSync(
     join(home, "current", "dist", "cli", "backup.js"),
     'require("node:fs").writeFileSync("backup-ran.txt", process.argv[2] + " " + process.env.NAEIL_DB); process.exit(Number(process.env.FAKE_BACKUP_CODE || 0));',
   );
@@ -148,6 +152,17 @@ describe("윈도우 실행기", () => {
     );
     expect(await run("backup", home, { FAKE_BACKUP_CODE: "3" }).exited).toBe(3);
     expect(readFileSync(join(home, "logs", "backup.log"), "utf8")).toContain("코드 3");
+  });
+
+  it("가져오기는 import.js 를 한 번 돌리고 기록을 import.log 에", async () => {
+    const home = makeHome();
+    expect(await run("import", home).exited).toBe(0);
+    expect(readFileSync(join(home, "current", "import-ran.txt"), "utf8")).toBe(
+      join(home, "naeil.db"),
+    );
+    expect(readFileSync(join(home, "logs", "import.log"), "utf8")).toContain(
+      "가져오기 끝 (코드 0)",
+    );
   });
 
   it("쓰는 법이 틀리면 2", async () => {

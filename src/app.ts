@@ -94,6 +94,8 @@ export const toTask = (t: Task) => ({
   sourceRef: t.source_ref,
   externalText: t.external_text === 1,
   body: t.body,
+  owner: t.owner ?? "author",
+  sourceUrl: t.source_url ?? null,
   createdAt: t.created_at,
   updatedAt: t.updated_at,
   deletedAt: t.deleted_at,

@@ -19,7 +19,7 @@ if (!existsSync(entry) || !existsSync(join(root, "web", "dist", "index.html"))) 
   process.exit(1);
 }
 
-const ALL = ["basics", "board", "panel", "phone", "trash", "today"];
+const ALL = ["basics", "board", "panel", "phone", "trash", "today", "import"];
 const pick = process.argv.slice(2);
 const flows = pick.length > 0 ? pick : ALL;
 
@@ -73,11 +73,11 @@ async function startServer(name) {
     }
     rmSync(work, { recursive: true, force: true });
   };
-  return { base, key, stop, log: () => log };
+  return { base, key, stop, log: () => log, env, work };
 }
 
 // 흐름에 넘기는 도구들
-function tools(base, key, name, results) {
+function tools(base, key, name, results, srv = {}) {
   const ok = (cond, what) => {
     results.push({ flow: name, ok: !!cond, what });
     console.log(`${cond ? "통과" : "실패"}  [${name}] ${what}`);
@@ -110,7 +110,14 @@ function tools(base, key, name, results) {
       await new Promise((r) => setTimeout(r, 50));
     }
   };
-  return { ok, api, until, base, key, out };
+  // 같은 자료 파일로 명령 하나 돌리기 (예 가져오기). 시험 폴더(work)를 같이 넘긴다
+  const cli = (script, args = [], extraEnv = {}) =>
+    spawnSync(process.execPath, [join(root, "dist", "cli", script), ...args], {
+      cwd: srv.work,
+      env: { ...srv.env, ...extraEnv },
+      encoding: "utf8",
+    });
+  return { ok, api, until, base, key, out, cli, work: srv.work };
 }
 
 mkdirSync(out, { recursive: true });
@@ -124,7 +131,7 @@ try {
   for (const name of flows) {
     const flow = await import(`./flows/${name}.mjs`);
     const srv = await startServer(name);
-    const t = tools(srv.base, srv.key, name, results);
+    const t = tools(srv.base, srv.key, name, results, srv);
     const errors = [];
     const page = async ({ width = 1440, height = 900, scheme = "light", storage = {} } = {}) => {
       const ctx = await browser.newContext({

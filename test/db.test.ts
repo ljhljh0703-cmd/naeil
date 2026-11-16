@@ -22,8 +22,10 @@ describe("표 구조 변경", () => {
       "003_entity_versions",
       "004_trashed_with",
       "005_kinds_today",
+      "006_owner_url",
     ]);
     expect(migrateUp(db)).toEqual([]); // 두 번 돌려도 그대로
+    expect(migrateDownOne(db)).toBe("006_owner_url");
     expect(migrateDownOne(db)).toBe("005_kinds_today");
     expect(migrateDownOne(db)).toBe("004_trashed_with");
     expect(migrateDownOne(db)).toBe("003_entity_versions");
@@ -40,6 +42,7 @@ describe("표 구조 변경", () => {
       "003_entity_versions",
       "004_trashed_with",
       "005_kinds_today",
+      "006_owner_url",
     ]);
   });
 
@@ -155,6 +158,7 @@ describe("예시 데이터", () => {
 describe("프로젝트·마일스톤 판 번호", () => {
   it("003은 기존 행과 연결을 보존하며 올리고 되돌리고 다시 올린다", () => {
     const db = freshDb();
+    expect(migrateDownOne(db)).toBe("006_owner_url");
     expect(migrateDownOne(db)).toBe("005_kinds_today");
     expect(migrateDownOne(db)).toBe("004_trashed_with");
     expect(migrateDownOne(db)).toBe("003_entity_versions");
@@ -187,7 +191,13 @@ describe("프로젝트·마일스톤 판 번호", () => {
       task: store.getTask(t),
       changes: store.listChanges(),
     };
-    expect(migrateUp(db)).toEqual(["003_entity_versions", "004_trashed_with", "005_kinds_today"]);
+    expect(migrateUp(db)).toEqual([
+      "003_entity_versions",
+      "004_trashed_with",
+      "005_kinds_today",
+      "006_owner_url",
+    ]);
+    expect(migrateDownOne(db)).toBe("006_owner_url");
     expect(migrateDownOne(db)).toBe("005_kinds_today");
     expect(migrateDownOne(db)).toBe("004_trashed_with");
     expect(store.getProject(p)).toEqual({ ...(before.project as object), version: 1 });
@@ -200,10 +210,21 @@ describe("프로젝트·마일스톤 판 번호", () => {
     expect(store.getTask(t)).toEqual(before.task);
     expect(store.listChanges()).toEqual(before.changes);
     expect(db.pragma("foreign_key_check")).toEqual([]);
-    expect(migrateUp(db)).toEqual(["003_entity_versions", "004_trashed_with", "005_kinds_today"]);
+    expect(migrateUp(db)).toEqual([
+      "003_entity_versions",
+      "004_trashed_with",
+      "005_kinds_today",
+      "006_owner_url",
+    ]);
     expect(store.getProject(p)?.version).toBe(1);
     expect(store.getMilestone(m)?.version).toBe(1);
-    expect(store.getTask(t)).toEqual({ ...(before.task as object), trashed_with: null });
+    expect(store.getTask(t)).toEqual({
+      ...(before.task as object),
+      trashed_with: null,
+      owner: "author",
+      source_url: null,
+      source_seen: null,
+    });
     expect(db.pragma("foreign_key_check")).toEqual([]);
   });
 });
