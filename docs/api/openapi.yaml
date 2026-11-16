@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: naeil API
-  version: 0.0.9
+  version: 0.0.10
   summary: 내 일은 naeil에서
   description: |
     내일은내일(naeil) 할 일 API 명세서 v1 (작가 결정 4곳 반영 2026-10-25, 코드는 1-2단계).
@@ -726,6 +726,43 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/usage:
+    get:
+      tags: [usage]
+      operationId: getUsage
+      summary: 날짜별 사용 기록 (작가가 처음 연 시각, 작가가 바꾼 수, 고른 결정 수, AI 가 바꾼 수, 가져오기 수)
+      description: 기본은 오늘까지 7일. 한 번에 93일까지. 「하루를 여기서 시작하는가」를 재려고 둔다 (M1 끝 기준)
+      parameters:
+        - name: since
+          in: query
+          schema: { type: string, format: date }
+        - name: until
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "200":
+          description: 날마다 한 줄 (오래된 날 먼저)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [day, firstOpenedAt, authorChanges, decisions, aiChanges, imports]
+                      properties:
+                        day: { type: string, format: date }
+                        firstOpenedAt: { type: [string, "null"], format: date-time }
+                        authorChanges: { type: integer }
+                        decisions: { type: integer }
+                        aiChanges: { type: integer }
+                        imports: { type: integer }
 
   /v1/settings:
     get:

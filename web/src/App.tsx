@@ -29,6 +29,7 @@ import {
 import { dLabel, todayFmt } from "./labels.js";
 import { Board } from "./MilestoneBoard.js";
 import { dDay, dueFromKstDate, kstDate } from "./today.js";
+import { Usage } from "./Usage.js";
 
 type Mode = "board" | "focus";
 type Page = "today" | "milestones";
@@ -695,6 +696,7 @@ export function App() {
         )}
 
         <footer className="foot">
+          <Usage />
           {settings.map((st) => (
             <button
               key={st.name}

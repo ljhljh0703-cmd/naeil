@@ -109,6 +109,15 @@ export type Setting = {
 
 export type Owner = "author" | "ai";
 
+export type UsageDay = {
+  day: string;
+  firstOpenedAt: string | null;
+  authorChanges: number;
+  decisions: number;
+  aiChanges: number;
+  imports: number;
+};
+
 // 가져올 일 하나 (M1-3). 출처 + 출처 번호가 같으면 같은 일로 보고 새로 넣지 않고 고친다
 export type ImportItem = {
   ref: string;
@@ -1001,6 +1010,63 @@ export class Store {
       )
       .run(this.workspace, name, enabled ? 1 : 0, why, actor, kind, this.now());
     return this.listSettings().find((s) => s.name === name) as Setting;
+  }
+
+  // ── 날짜별 사용 기록 (M1-5) ──
+
+  // 사람 출입증으로 부른 그날 첫 시각만 남긴다 (이미 있으면 그대로)
+  markOpened(day: string): void {
+    this.db
+      .prepare(
+        "INSERT OR IGNORE INTO usage_days (workspace_id, day, first_opened_at) VALUES (?, ?, ?)",
+      )
+      .run(this.workspace, day, this.now());
+  }
+
+  // 한국 날짜 from ~ to (둘 다 포함) 날마다: 처음 연 시각, 작가가 바꾼 수, 고른 결정 수, AI 가 바꾼 수, 가져오기 수
+  usage(from: string, to: string): UsageDay[] {
+    const start = kstDayStart(from);
+    const end = kstDayStart(to, 1);
+    const dayOf = (iso: string) =>
+      new Date(Date.parse(iso) + 9 * 3600_000).toISOString().slice(0, 10);
+    const days = new Map<string, UsageDay>();
+    for (let t = Date.parse(start); t < Date.parse(end); t += 86_400_000) {
+      const d = dayOf(new Date(t).toISOString());
+      days.set(d, {
+        day: d,
+        firstOpenedAt: null,
+        authorChanges: 0,
+        decisions: 0,
+        aiChanges: 0,
+        imports: 0,
+      });
+    }
+    for (const r of this.db
+      .prepare(
+        "SELECT day, first_opened_at FROM usage_days WHERE workspace_id = ? AND day >= ? AND day <= ?",
+      )
+      .all(this.workspace, from, to) as { day: string; first_opened_at: string }[]) {
+      const u = days.get(r.day);
+      if (u) u.firstOpenedAt = r.first_opened_at;
+    }
+    for (const r of this.db
+      .prepare(
+        "SELECT at, actor_kind, action FROM change_log WHERE workspace_id = ? AND at >= ? AND at < ?",
+      )
+      .all(this.workspace, start, end) as {
+      at: string;
+      actor_kind: string | null;
+      action: string;
+    }[]) {
+      const u = days.get(dayOf(r.at));
+      if (!u) continue;
+      if (r.action === "import") u.imports++;
+      else if (r.actor_kind === "human") {
+        u.authorChanges++;
+        if (r.action === "decide") u.decisions++;
+      } else if (r.actor_kind === "ai") u.aiChanges++;
+    }
+    return [...days.values()];
   }
 
   // ── 변경 기록 ──

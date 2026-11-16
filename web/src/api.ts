@@ -55,6 +55,16 @@ export type Setting = {
   changedAt: string | null;
 };
 
+// 날짜별 사용 기록 (M1-5). 처음 연 시각은 사람 출입증의 그날 첫 요청
+export type UsageDay = {
+  day: string;
+  firstOpenedAt: string | null;
+  authorChanges: number;
+  decisions: number;
+  aiChanges: number;
+  imports: number;
+};
+
 export type Notice = {
   kind: "switch-off";
   name: string;
@@ -231,6 +241,7 @@ export const api = {
   today: () => call<Today>("GET", "/v1/today"),
   setToday: (state: { pinnedTaskId: string | null; skipped: string[] }) =>
     call<Today>("PUT", "/v1/today", state),
+  usage: () => call<{ items: UsageDay[] }>("GET", "/v1/usage").then((r) => r.items),
   // 상세의 「바뀐 기록」 칸도 여기서 거른다 (최근 200줄)
   changes: (limit = 200) =>
     call<Page<Change>>("GET", `/v1/changes?limit=${limit}`).then((r) => r.items),
