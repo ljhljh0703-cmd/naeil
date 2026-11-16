@@ -57,9 +57,12 @@ function childEnv(cfg) {
   };
 }
 
+// 다른 쪽(상태 보기, 시험)이 쓰는 중인 반쪽 파일을 읽지 않게, 옆에 쓰고 이름을 바꾼다
 function saveState(cfg, state) {
   try {
-    writeFileSync(join(cfg.logDir, "service-state.json"), `${JSON.stringify(state, null, 2)}\n`);
+    const file = join(cfg.logDir, "service-state.json");
+    writeFileSync(`${file}.tmp`, `${JSON.stringify(state, null, 2)}\n`);
+    renameSync(`${file}.tmp`, file);
   } catch {}
 }
 

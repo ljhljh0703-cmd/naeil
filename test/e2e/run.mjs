@@ -143,6 +143,17 @@ try {
       );
       const p = await ctx.newPage();
       p.on("pageerror", (e) => errors.push(String(e)));
+      // 화면 캡처는 증거물일 뿐 확인 항목이 아니다. 자동 검사 기계에서 글꼴을 기다리다 시간이 넘는 일이 있어
+      // 캡처가 실패해도 흐름은 계속 간다 (2026-11-16 #23, #27 에서 한 번씩)
+      const shoot = p.screenshot.bind(p);
+      p.screenshot = async (opts = {}) => {
+        try {
+          return await shoot({ timeout: 15_000, ...opts });
+        } catch (err) {
+          console.log(`화면 캡처 건너뜀 ${opts.path ?? ""}: ${err.message.split("\n")[0]}`);
+          return null;
+        }
+      };
       return { ctx, p };
     };
     try {

@@ -52,7 +52,14 @@ function run(mode: string, home: string, env: Record<string, string> = {}) {
 
 async function until(fn: () => boolean, ms = 5000) {
   const end = Date.now() + ms;
-  while (!fn()) {
+  const safe = () => {
+    try {
+      return fn();
+    } catch {
+      return false; // 아직 안 써진 파일 등은 조금 뒤 다시
+    }
+  };
+  while (!safe()) {
     if (Date.now() > end) throw new Error("시간 안에 안 됨");
     await new Promise((r) => setTimeout(r, 25));
   }
