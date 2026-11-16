@@ -42,7 +42,7 @@ jobs:
       - run: npm run e2e
       - name: 캡처와 결과 올리기
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-out
           path: test/e2e/out/
@@ -67,7 +67,7 @@ jobs:
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\ci-verify.ps1
       - name: 기록 올리기
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-logs
           path: ~\AppData\Local\naeil\logs\
