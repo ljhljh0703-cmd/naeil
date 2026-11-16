@@ -33,6 +33,8 @@ export type Milestone = {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  // 프로젝트와 같이 휴지통에 들어갔으면 그 프로젝트 번호 (004)
+  trashed_with?: string | null;
 };
 
 export type MilestonePatch = { name?: string; dueAt?: string | null };
@@ -55,6 +57,7 @@ export type Task = {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  trashed_with?: string | null;
 };
 
 export type ChangeRow = {
@@ -211,11 +214,55 @@ export class Store {
     })();
   }
 
+  // 프로젝트 휴지통: 안의 마일스톤과 할 일도 같은 시각으로 같이 넣고, 같이 들어간 표시를 남긴다 (M1-2, 작가 결정 2026-11-05)
   trashProject(who: Who, id: string): void {
     this.db.transaction(() => {
-      this.mustProject(id);
-      this.bumpEntity("projects", id, undefined, "deleted_at = ?", [this.now()]);
-      this.log(who, "project", id, "trash");
+      const { name } = this.mustProject(id);
+      const t = this.now();
+      const milestones = this.db
+        .prepare(
+          `UPDATE milestones SET deleted_at = ?, trashed_with = ?, version = version + 1, updated_at = ?
+           WHERE project_id = ? AND workspace_id = ? AND deleted_at IS NULL`,
+        )
+        .run(t, id, t, id, this.workspace).changes;
+      const tasks = this.db
+        .prepare(
+          `UPDATE tasks SET deleted_at = ?, trashed_with = ?, version = version + 1, updated_at = ?
+           WHERE project_id = ? AND workspace_id = ? AND deleted_at IS NULL`,
+        )
+        .run(t, id, t, id, this.workspace).changes;
+      this.bumpEntity("projects", id, undefined, "deleted_at = ?", [t]);
+      // 이름도 남긴다. 휴지통에 든 뒤에도 「마지막에 한 일」에 이름이 보이게
+      this.log(who, "project", id, "trash", { name, milestones, tasks });
+    })();
+  }
+
+  // 되살리기: 프로젝트와, 프로젝트와 같이 들어간 것만 꺼낸다. 먼저 따로 버린 할 일은 휴지통에 그대로
+  reviveProject(who: Who, id: string): void {
+    this.db.transaction(() => {
+      const p = this.getProject(id, { includeTrashed: true });
+      if (!p) throw new NotFound(`프로젝트가 없음: ${id}`);
+      if (!p.deleted_at) return; // 이미 살아 있음
+      const t = this.now();
+      const milestones = this.db
+        .prepare(
+          `UPDATE milestones SET deleted_at = NULL, trashed_with = NULL, version = version + 1, updated_at = ?
+           WHERE trashed_with = ? AND workspace_id = ?`,
+        )
+        .run(t, id, this.workspace).changes;
+      const tasks = this.db
+        .prepare(
+          `UPDATE tasks SET deleted_at = NULL, trashed_with = NULL, version = version + 1, updated_at = ?
+           WHERE trashed_with = ? AND workspace_id = ?`,
+        )
+        .run(t, id, this.workspace).changes;
+      this.db
+        .prepare(
+          `UPDATE projects SET deleted_at = NULL, version = version + 1, updated_at = ?
+           WHERE id = ? AND workspace_id = ?`,
+        )
+        .run(t, id, this.workspace);
+      this.log(who, "project", id, "revive", { name: p.name, milestones, tasks });
     })();
   }
 
@@ -522,11 +569,18 @@ export class Store {
   revive(who: Who, id: string): void {
     const t = this.mustTask(id, { includeTrashed: true });
     if (!t.deleted_at && t.status !== "done") return; // 이미 살아 있음
+    // 휴지통에 든 프로젝트의 할 일만 꺼내면 보이지 않는 곳에 살아난다. 프로젝트를 되살리게 한다
+    if (t.deleted_at && !this.getProject(t.project_id)) {
+      throw new RuleViolation(
+        "project-trashed",
+        "이 할 일의 프로젝트가 휴지통에 있음. 프로젝트를 되살리면 같이 돌아옴",
+      );
+    }
     this.db.transaction(() => {
       this.bump(
         id,
         undefined,
-        "deleted_at = NULL, status = CASE WHEN status = 'done' THEN 'todo' ELSE status END",
+        "deleted_at = NULL, trashed_with = NULL, status = CASE WHEN status = 'done' THEN 'todo' ELSE status END",
         [],
       );
       this.log(who, "task", id, "revive");

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { applied, migrateDownOne, migrateUp } from "../src/db/migrate.js";
 import { seed } from "../src/db/seed.js";
 import { Store } from "../src/db/store.js";
-import { NotFound, VersionMismatch } from "../src/errors.js";
+import { NotFound, RuleViolation, VersionMismatch } from "../src/errors.js";
 
 function freshDb() {
   const db = new Database(":memory:");
@@ -20,8 +20,10 @@ describe("표 구조 변경", () => {
       "001_init",
       "002_keys_idempotency_session",
       "003_entity_versions",
+      "004_trashed_with",
     ]);
     expect(migrateUp(db)).toEqual([]); // 두 번 돌려도 그대로
+    expect(migrateDownOne(db)).toBe("004_trashed_with");
     expect(migrateDownOne(db)).toBe("003_entity_versions");
     expect(migrateDownOne(db)).toBe("002_keys_idempotency_session");
     expect(migrateDownOne(db)).toBe("001_init");
@@ -34,6 +36,7 @@ describe("표 구조 변경", () => {
       "001_init",
       "002_keys_idempotency_session",
       "003_entity_versions",
+      "004_trashed_with",
     ]);
   });
 
@@ -149,6 +152,7 @@ describe("예시 데이터", () => {
 describe("프로젝트·마일스톤 판 번호", () => {
   it("003은 기존 행과 연결을 보존하며 올리고 되돌리고 다시 올린다", () => {
     const db = freshDb();
+    expect(migrateDownOne(db)).toBe("004_trashed_with");
     expect(migrateDownOne(db)).toBe("003_entity_versions");
     const columns = (table: string) =>
       (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
@@ -164,7 +168,8 @@ describe("프로젝트·마일스톤 판 번호", () => {
       task: store.getTask(t),
       changes: store.listChanges(),
     };
-    expect(migrateUp(db)).toEqual(["003_entity_versions"]);
+    expect(migrateUp(db)).toEqual(["003_entity_versions", "004_trashed_with"]);
+    expect(migrateDownOne(db)).toBe("004_trashed_with");
     expect(store.getProject(p)).toEqual({ ...(before.project as object), version: 1 });
     expect(store.getMilestone(m)).toEqual({ ...(before.milestone as object), version: 1 });
     db.prepare("UPDATE projects SET version = 7 WHERE id = ?").run(p);
@@ -175,10 +180,10 @@ describe("프로젝트·마일스톤 판 번호", () => {
     expect(store.getTask(t)).toEqual(before.task);
     expect(store.listChanges()).toEqual(before.changes);
     expect(db.pragma("foreign_key_check")).toEqual([]);
-    expect(migrateUp(db)).toEqual(["003_entity_versions"]);
+    expect(migrateUp(db)).toEqual(["003_entity_versions", "004_trashed_with"]);
     expect(store.getProject(p)?.version).toBe(1);
     expect(store.getMilestone(m)?.version).toBe(1);
-    expect(store.getTask(t)).toEqual(before.task);
+    expect(store.getTask(t)).toEqual({ ...(before.task as object), trashed_with: null });
     expect(db.pragma("foreign_key_check")).toEqual([]);
   });
 });
@@ -211,11 +216,9 @@ describe("프로젝트·마일스톤 저장소", () => {
     expect(store.listChanges()).toHaveLength(before + 1);
   });
 
-  it("프로젝트 휴지통은 하위 행과 연결을 그대로 두며 반복 삭제는 거절한다", () => {
+  it("프로젝트 휴지통: 안의 마일스톤과 할 일도 같이 들어가고, 반복 삭제는 거절한다 (M1-2)", () => {
     const m = store.createMilestone(who, p, "목표");
     const t = store.createTask(who, { projectId: p, milestoneId: m, title: "할 일" });
-    const milestone = store.getMilestone(m);
-    const task = store.getTask(t);
     const count = store.listChanges().length;
     store.trashProject(who, p);
     expect(store.getProject(p)).toBeUndefined();
@@ -223,11 +226,77 @@ describe("프로젝트·마일스톤 저장소", () => {
       version: 2,
       deleted_at: "2026-10-26T00:00:00.000Z",
     });
-    expect(store.getMilestone(m)).toEqual(milestone);
-    expect(store.getTask(t)).toEqual(task);
+    expect(store.getMilestone(m)).toBeUndefined();
+    expect(store.getMilestone(m, { includeTrashed: true })).toMatchObject({
+      deleted_at: "2026-10-26T00:00:00.000Z",
+      trashed_with: p,
+      version: 2,
+    });
+    expect(store.getTask(t)).toBeUndefined();
+    expect(store.getTask(t, { includeTrashed: true })).toMatchObject({
+      deleted_at: "2026-10-26T00:00:00.000Z",
+      trashed_with: p,
+      milestone_id: m,
+    });
+    expect(store.listTasks()).toEqual([]);
+    // 기록은 프로젝트 한 줄, 같이 들어간 수를 남김
     expect(store.listChanges()).toHaveLength(count + 1);
+    expect(JSON.parse(store.listChanges()[0]?.details ?? "{}")).toEqual({
+      name: "시험 프로젝트",
+      milestones: 1,
+      tasks: 1,
+    });
     expect(() => store.trashProject(who, p)).toThrow(NotFound);
     expect(store.listChanges()).toHaveLength(count + 1);
+  });
+
+  it("프로젝트 되살리기: 같이 들어간 것만 돌아오고, 먼저 따로 버린 할 일은 휴지통에 그대로 (M1-2)", () => {
+    const m = store.createMilestone(who, p, "목표");
+    const keep = store.createTask(who, { projectId: p, milestoneId: m, title: "같이 들어갈 일" });
+    const before = store.createTask(who, { projectId: p, title: "먼저 버린 일" });
+    store.trash(who, before);
+    const other = store.createProject(who, "다른 프로젝트");
+    const otherTask = store.createTask(who, { projectId: other, title: "다른 일" });
+    store.trashProject(who, p);
+    // 휴지통 프로젝트의 할 일만 꺼내면 거절 (보이지 않는 곳에 살아남)
+    expect(() => store.revive(who, keep)).toThrow(RuleViolation);
+    const count = store.listChanges().length;
+    store.reviveProject(who, p);
+    expect(store.getProject(p)).toMatchObject({ deleted_at: null, version: 3 });
+    expect(store.getMilestone(m)).toMatchObject({
+      deleted_at: null,
+      trashed_with: null,
+      version: 3,
+    });
+    expect(store.getTask(keep)).toMatchObject({
+      deleted_at: null,
+      trashed_with: null,
+      milestone_id: m,
+    });
+    expect(store.getTask(before)).toBeUndefined();
+    expect(store.getTask(otherTask)).toMatchObject({ deleted_at: null });
+    expect(store.listChanges()).toHaveLength(count + 1);
+    expect(store.listChanges()[0]).toMatchObject({ entity: "project", action: "revive" });
+    expect(JSON.parse(store.listChanges()[0]?.details ?? "{}")).toEqual({
+      name: "시험 프로젝트",
+      milestones: 1,
+      tasks: 1,
+    });
+    // 이미 살아 있으면 아무것도 안 함, 없는 번호는 404
+    store.reviveProject(who, p);
+    expect(store.listChanges()).toHaveLength(count + 1);
+    expect(() => store.reviveProject(who, "missing")).toThrow(NotFound);
+    // 먼저 버린 일은 프로젝트가 살아난 뒤 따로 되살릴 수 있음
+    store.revive(who, before);
+    expect(store.getTask(before)).toMatchObject({ deleted_at: null });
+  });
+
+  it("다른 작업 공간의 프로젝트는 되살리지 못함", () => {
+    const other = new Store(db, "other");
+    const foreign = other.createProject(who, "다른 공간");
+    other.trashProject(who, foreign);
+    expect(() => store.reviveProject(who, foreign)).toThrow(NotFound);
+    expect(other.getProject(foreign)).toBeUndefined();
   });
 
   it("없는·다른 작업 공간·휴지통 프로젝트 아래 생성과 목록은 404 오류다", () => {

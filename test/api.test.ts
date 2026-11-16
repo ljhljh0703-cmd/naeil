@@ -578,26 +578,64 @@ describe("프로젝트·마일스톤", () => {
     expect(changesFor(projectId)).toHaveLength(4);
   });
 
-  it("프로젝트 DELETE: 프로젝트만 휴지통에 넣고 하위 행은 보존한다", async () => {
+  it("프로젝트 DELETE: 안의 마일스톤과 할 일도 같이 휴지통 (M1-2)", async () => {
     const { store, projectId, milestoneId } = fixture();
     const taskId = store.createTask("fixture", { projectId, milestoneId, title: "샘플 할 일" });
-    const beforeTask = store.getTask(taskId);
-    const beforeMilestone = db.prepare("SELECT * FROM milestones WHERE id = ?").get(milestoneId);
     const res = await call("DELETE", projectPath, { url: `/v1/projects/${projectId}` });
     expect(res.statusCode).toBe(204);
     expect(res.body).toBe("");
     expect(store.getProject(projectId)).toBeUndefined();
     expect(store.getProject(projectId, { includeTrashed: true })?.deleted_at).toBeTruthy();
-    expect(store.getTask(taskId)).toEqual(beforeTask);
-    expect(db.prepare("SELECT * FROM milestones WHERE id = ?").get(milestoneId)).toEqual(
-      beforeMilestone,
-    );
+    expect(store.getTask(taskId)).toBeUndefined();
+    expect(store.getMilestone(milestoneId)).toBeUndefined();
     expect((await call("GET", "/v1/projects")).json().items).toEqual([]);
     expect(
       (await call("GET", "/v1/projects", { url: "/v1/projects?includeTrashed=true" })).json().items,
     ).toHaveLength(1);
-    expect(changesFor(projectId).at(-1)).toMatchObject({ entity: "project", action: "trash" });
+    expect((await call("GET", "/v1/tasks")).json().items).toEqual([]);
+    expect(changesFor(projectId).at(-1)).toMatchObject({
+      entity: "project",
+      action: "trash",
+      details: expect.stringContaining('"milestones":1,"tasks":1'),
+    });
     expect(changesFor(projectId)).toHaveLength(2);
+  });
+
+  it("프로젝트 되살리기: 같이 들어간 것이 돌아오고, 휴지통 프로젝트의 할 일만 꺼내기는 422 (M1-2)", async () => {
+    const { store, projectId, milestoneId } = fixture();
+    const taskId = store.createTask("fixture", { projectId, milestoneId, title: "샘플 할 일" });
+    await call("DELETE", projectPath, { url: `/v1/projects/${projectId}` });
+    const lone = await call("POST", "/v1/tasks/{taskId}/revive", {
+      url: `/v1/tasks/${taskId}/revive`,
+    });
+    expect(lone.statusCode).toBe(422);
+    expect(lone.json().type).toContain("project-trashed");
+    const res = await call("POST", "/v1/projects/{projectId}/revive", {
+      url: `/v1/projects/${projectId}/revive`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ id: projectId, deletedAt: null });
+    expect(res.headers.etag).toBeTruthy();
+    expect((await call("GET", "/v1/tasks")).json().items.map((t: { id: string }) => t.id)).toEqual([
+      taskId,
+    ]);
+    expect(store.getMilestone(milestoneId)?.deleted_at).toBeNull();
+    expect(changesFor(projectId).at(-1)).toMatchObject({ action: "revive" });
+    // 다시 불러도 그대로 200, 없는 번호는 404
+    expect(
+      (
+        await call("POST", "/v1/projects/{projectId}/revive", {
+          url: `/v1/projects/${projectId}/revive`,
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await call("POST", "/v1/projects/{projectId}/revive", {
+          url: `/v1/projects/${missingId}/revive`,
+        })
+      ).statusCode,
+    ).toBe(404);
   });
 
   it("프로젝트 DELETE·PATCH: 없는 번호와 휴지통 번호는 404", async () => {

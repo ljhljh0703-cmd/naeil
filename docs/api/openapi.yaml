@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: naeil API
-  version: 0.0.5
+  version: 0.0.6
   summary: 내 일은 naeil에서
   description: |
     내일은내일(naeil) 할 일 API 명세서 v1 (작가 결정 4곳 반영 2026-10-25, 코드는 1-2단계).
@@ -166,7 +166,28 @@ paths:
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "400": { $ref: "#/components/responses/BadRequest" }
-        "204": { description: 휴지통으로 감 }
+        "204": { description: "휴지통으로 감. 안의 마일스톤과 할 일도 같이 들어감" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/projects/{projectId}/revive:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    post:
+      tags: [projects]
+      operationId: reviveProject
+      summary: 프로젝트 되살리기 (같이 휴지통에 들어간 마일스톤과 할 일도 같이. 먼저 따로 버린 것은 그대로)
+      parameters:
+        - $ref: "#/components/parameters/Session"
+      responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "200":
+          description: 되살린 프로젝트
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/projects/{projectId}/milestones:
@@ -450,6 +471,11 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Task" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: 규칙 위반 (프로젝트가 휴지통에 있음. 프로젝트를 되살리면 같이 돌아옴)
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
 
   /v1/changes:
     get:

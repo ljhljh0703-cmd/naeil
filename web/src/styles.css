@@ -914,3 +914,30 @@ div.error {
     box-shadow: 0 4px 16px rgb(0 0 0 / 0.16);
   }
 }
+
+/* 프로젝트 휴지통 (M1-2) */
+.board-tools {
+  margin: 8px 0 0;
+}
+.confirm {
+  border: 0;
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg);
+}
+.confirm p {
+  margin: 0 0 10px;
+}
+.trash-bin ul.plain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.row.spread {
+  justify-content: space-between;
+  align-items: center;
+}

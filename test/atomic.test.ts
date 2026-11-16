@@ -79,3 +79,46 @@ describe("할 일 만들기: 할 일과 기록은 한 묶음", () => {
     expect(count("idempotency_keys")).toBe(0);
   });
 });
+
+// M1-2: 프로젝트 휴지통과 되살리기는 프로젝트, 마일스톤, 할 일, 기록 네 곳을 한 번에 바꾼다.
+// 기록이 실패하면 아무것도 바뀌지 않아야 한다 (안의 할 일만 휴지통에 들어간 반쪽 상태가 없게).
+describe("프로젝트 휴지통과 되살리기: 네 곳이 한 묶음", () => {
+  const breakProjectLog = (action: "trash" | "revive") =>
+    db.exec(`CREATE TRIGGER fail_project_log BEFORE INSERT ON change_log
+             WHEN NEW.entity = 'project' AND NEW.action = '${action}'
+             BEGIN SELECT RAISE(ABORT, '기록 저장 실패 주입'); END`);
+  const setup = async () => {
+    const projectId = await newProject();
+    const s = new Store(db);
+    const m = s.createMilestone("author", projectId, "목표");
+    s.createTask("author", { projectId, milestoneId: m, title: "할 일" });
+    return { s, projectId };
+  };
+
+  it("대조: 실패를 넣지 않으면 넣고 되살리기가 모두 됨", async () => {
+    const { s, projectId } = await setup();
+    s.trashProject("author", projectId);
+    expect(count("tasks", "deleted_at IS NOT NULL")).toBe(1);
+    s.reviveProject("author", projectId);
+    expect(count("tasks", "deleted_at IS NULL")).toBe(1);
+  });
+
+  it("휴지통 기록이 실패하면 프로젝트도 안의 것도 그대로 살아 있음", async () => {
+    const { s, projectId } = await setup();
+    breakProjectLog("trash");
+    expect(() => s.trashProject("author", projectId)).toThrow();
+    expect(count("projects", "deleted_at IS NULL")).toBe(1);
+    expect(count("milestones", "deleted_at IS NULL AND trashed_with IS NULL")).toBe(1);
+    expect(count("tasks", "deleted_at IS NULL AND trashed_with IS NULL")).toBe(1);
+  });
+
+  it("되살리기 기록이 실패하면 프로젝트도 안의 것도 휴지통에 그대로", async () => {
+    const { s, projectId } = await setup();
+    s.trashProject("author", projectId);
+    breakProjectLog("revive");
+    expect(() => s.reviveProject("author", projectId)).toThrow();
+    expect(count("projects", "deleted_at IS NOT NULL")).toBe(1);
+    expect(count("milestones", `trashed_with = '${projectId}'`)).toBe(1);
+    expect(count("tasks", `trashed_with = '${projectId}'`)).toBe(1);
+  });
+});

@@ -3,7 +3,7 @@
 import { newKey } from "./ids.js";
 import type { BlockedReason, Status, Task } from "./today.js";
 
-export type Project = { id: string; name: string };
+export type Project = { id: string; name: string; deletedAt?: string | null };
 
 export type Milestone = {
   id: string;
@@ -112,6 +112,13 @@ export const api = {
   projects: () => call<{ items: Project[] }>("GET", "/v1/projects").then((r) => r.items),
   createProject: (name: string, key?: string) =>
     call<Project>("POST", "/v1/projects", { name }, once(key)),
+  // 휴지통에 든 프로젝트 (안의 마일스톤과 할 일도 같이 들어가 있음)
+  trashedProjects: () =>
+    call<{ items: Project[] }>("GET", "/v1/projects?includeTrashed=true").then((r) =>
+      r.items.filter((p) => p.deletedAt),
+    ),
+  trashProject: (id: string) => call<null>("DELETE", `/v1/projects/${id}`),
+  reviveProject: (id: string) => call<Project>("POST", `/v1/projects/${id}/revive`),
   async allTasks(): Promise<ApiTask[]> {
     const out: ApiTask[] = [];
     let cursor: string | null = null;

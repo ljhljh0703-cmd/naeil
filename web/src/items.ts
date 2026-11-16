@@ -274,6 +274,8 @@ const DETAIL_KEY: Record<string, string> = {
   due_at: "마감",
   milestone_id: "마일스톤",
   cleared_block: "같이 풀린 멈춤",
+  milestones: "같이 옮긴 마일스톤",
+  tasks: "같이 옮긴 할 일",
 };
 
 function detailValue(key: string, v: unknown, ctx: Ctx): string | null {
