@@ -125,7 +125,7 @@ describe("오늘 화면에서 다음 단계 숨기기", () => {
     expect(todaySheet(store, at)).toContain("권한표");
   });
 
-  it("오늘 고정한 일은 뒤 단계여도 보임", async () => {
+  it("「오늘 할 일」로 고정한 일은 뒤 단계여도 보임", async () => {
     const put = await app.inject({
       method: "PUT",
       url: "/v1/today",

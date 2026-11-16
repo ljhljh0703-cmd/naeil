@@ -495,7 +495,7 @@ export function App() {
         {projects.find((p) => p.id === current.projectId)?.name}
         {current.status === "doing" && <span className="chip tone-info">진행 중</span>}
         {current.dueAt && <span className="chip">{dLabel(dDay(current.dueAt, now))}</span>}
-        {day.pinned === current.id && <span className="chip">오늘 고정</span>}
+        {day.pinned === current.id && <span className="chip">오늘 할 일</span>}
       </p>
       <div className="row">
         {current.status === "todo" ? (
@@ -528,7 +528,7 @@ export function App() {
         </button>
         {day.pinned !== current.id && (
           <button type="button" onClick={() => day.save({ ...day, pinned: current.id })}>
-            오늘 고정
+            오늘 할 일
           </button>
         )}
         <button

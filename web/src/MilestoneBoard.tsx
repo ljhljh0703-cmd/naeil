@@ -186,7 +186,7 @@ function TrashProject({
         {milestones || tasks
           ? `와 안의 마일스톤 ${milestones}개, 할 일 ${tasks}개를 휴지통에 넣습니다.`
           : "를 휴지통에 넣습니다."}{" "}
-        휴지통에서 복원하면 같이 돌아옵니다.
+        휴지통에서 되돌리면 같이 돌아옵니다.
       </p>
       <div className="row">
         <button type="button" className="danger" disabled={busy} onClick={go}>
@@ -241,7 +241,7 @@ function TrashBin({
               disabled={busy === p.id}
               onClick={() => revive(p.id)}
             >
-              복원
+              되돌리기
             </button>
           </li>
         ))}

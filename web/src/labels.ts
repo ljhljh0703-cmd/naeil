@@ -17,7 +17,7 @@ export const ACTION: Record<string, string> = {
   block: "보류",
   unblock: "보류 해제",
   trash: "휴지통",
-  revive: "복원",
+  revive: "되돌림",
   import: "가져옴",
   ask: "결정 요청",
   decide: "결정",

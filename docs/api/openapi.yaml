@@ -554,7 +554,7 @@ paths:
     put:
       tags: [today]
       operationId: setToday
-      summary: 그날의 「오늘 고정」 고정과 건너뛰기를 바꾼다
+      summary: 그날의 「오늘 할 일」 고정과 건너뛰기를 바꾼다
       requestBody:
         required: true
         content:

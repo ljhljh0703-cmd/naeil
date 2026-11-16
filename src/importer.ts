@@ -217,7 +217,7 @@ export async function runImport(
 // ── vault 요청함: 클라우드 세션의 요청 ──
 // 파일 하나 = 요청 하나 (JSON). 처리한 파일은 「처리함」 폴더로 옮기고 결과를 옆에 적는다.
 //   { "요청": "새 할 일", "제목": "...", "프로젝트": "...", "마감": "2026-11-20", "누가": "claude-cloud" }
-//   { "요청": "진행 중" | "완료" | "복원", "할일": "<할 일 번호>" }  (예전 이름 하는 중, 끝, 되살리기, 멈춤도 받음)
+//   { "요청": "진행 중" | "완료" | "되돌리기", "할일": "<할 일 번호>" }  (예전 이름 하는 중, 끝, 되살리기, 복원, 멈춤도 받음)
 //   { "요청": "멈춤", "할일": "<번호>", "이유": "내 결정 대기" | "외부 응답 대기" | "기술 문제" }
 //   { "요청": "정할 것", "할일": "<번호>", "질문": "...", "선택지": ["가", "나"], "추천": "가", "근거": "..." }
 //   { "요청": "어디까지", "할일": "<번호>", "한 줄": "..." }
@@ -236,7 +236,8 @@ const REASONS: Record<string, BlockedReason> = {
 const KIND_ALIAS: Record<string, string> = {
   끝: "완료",
   "하는 중": "진행 중",
-  되살리기: "복원",
+  되살리기: "되돌리기",
+  복원: "되돌리기",
   멈춤: "보류",
 };
 
@@ -294,11 +295,11 @@ function applyRequest(store: Store, req: Record<string, unknown>, file: string):
   }
   const id = str(req.할일);
   if (!id) throw new Error("할일 번호가 없음");
-  const task = store.getTask(id, { includeTrashed: kind === "복원" });
+  const task = store.getTask(id, { includeTrashed: kind === "되돌리기" });
   if (!task) throw new Error(`할 일이 없음: ${id}`);
   if (kind === "완료") store.setStatus(who, id, "done");
   else if (kind === "진행 중") store.setStatus(who, id, "doing");
-  else if (kind === "복원") store.revive(who, id);
+  else if (kind === "되돌리기") store.revive(who, id);
   else if (kind === "정할 것") {
     const question = str(req.질문);
     if (!question) throw new Error("질문이 없음");

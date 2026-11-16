@@ -425,7 +425,7 @@ export class Store {
   }
 
   // 오늘 화면에 올릴 할 일: 프로젝트마다 「지금 단계」(열린 일이 남은 첫 마일스톤) 뒤의 마일스톤에 든 열린 일은 뺀다.
-  // 마일스톤 순서는 보드와 같음 (목표 날짜, 만든 순서). 마일스톤 없는 일과 오늘 고정한 일은 늘 보임 (작가 결정 2026-11-16 「오늘 화면에서 다음 판 숨기기」)
+  // 마일스톤 순서는 보드와 같음 (목표 날짜, 만든 순서). 마일스톤 없는 일과 「오늘 할 일」로 고정한 일은 늘 보임 (작가 결정 2026-11-16 「오늘 화면에서 다음 판 숨기기」)
   todayTasks(pinnedId?: string | null): { tasks: Task[]; later: number } {
     const tasks = this.listTasks();
     const ms = this.db
@@ -740,7 +740,7 @@ export class Store {
     if (t.deleted_at && !this.getProject(t.project_id)) {
       throw new RuleViolation(
         "project-trashed",
-        "이 할 일의 프로젝트가 휴지통에 있음. 프로젝트를 복원하면 같이 돌아옴",
+        "이 할 일의 프로젝트가 휴지통에 있음. 프로젝트를 되돌리면 같이 돌아옴",
       );
     }
     this.db.transaction(() => {
@@ -1156,7 +1156,7 @@ export class Store {
       .all(...args) as ChangeRow[];
   }
 
-  // ── 오늘 고정과 건너뛰기 (날짜별, M1-7) ──
+  // ── 오늘 할 일(고정)과 건너뛰기 (날짜별, M1-7) ──
 
   getDay(day: string): { pinnedTaskId: string | null; skipped: string[] } {
     const row = this.db

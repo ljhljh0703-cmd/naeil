@@ -56,7 +56,7 @@ describe("지금 할 것 1개", () => {
     const d = task({ deleted_at: "2026-10-25T00:00:00Z" });
     expect(pickNow([a, b, c, d])).toBeNull();
   });
-  it("건너뛰면 다음 것, 「오늘 고정」는 맨 앞, 고정한 일이 멈추면 고정이 풀린 것처럼", () => {
+  it("건너뛰면 다음 것, 「오늘 할 일」은 맨 앞, 고정한 일이 멈추면 고정이 풀린 것처럼", () => {
     const a = task({ status: "doing" });
     const b = task();
     expect(pickNow([a, b], { skipped: new Set([a.id]) })?.id).toBe(b.id);
