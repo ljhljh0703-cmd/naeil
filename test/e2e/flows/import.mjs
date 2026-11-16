@@ -56,7 +56,7 @@ export async function run({ page, ok, until, api, base, cli, work }) {
   );
   ok(
     await until(async () =>
-      (await p.locator("main").textContent()).includes("가져오기 3건: 가져옴 3"),
+      (await p.locator("main").textContent()).includes("가져오기 3건: 가져옴 3, 정할 것 1"),
     ),
     "마지막에 한 일은 가져오기 한 줄로 접힘",
   );

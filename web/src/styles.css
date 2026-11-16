@@ -941,3 +941,28 @@ div.error {
   justify-content: space-between;
   align-items: center;
 }
+
+/* 잠깐 알림, AI 가 끈 스위치 알림 (M1-4) */
+.info {
+  margin: 0;
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-ctl);
+  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+  font-size: var(--t-small);
+}
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-ctl);
+  background: color-mix(in srgb, var(--late) 8%, var(--card));
+  font-size: var(--t-small);
+}
+.foot {
+  flex-wrap: wrap;
+  gap: var(--s2);
+}

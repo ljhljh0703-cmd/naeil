@@ -91,17 +91,19 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\status.ps1
     { "type": "github", "repo": "ljhljh0703-cmd/naeil" }
   ],
   "inbox": "C:\\Users\\<나>\\<vault>\\wiki\\projects\\naeil-inbox",
-  "todaySheet": "C:\\Users\\<나>\\<vault>\\wiki\\projects\\naeil-today.md"
+  "todaySheet": "C:\\Users\\<나>\\<vault>\\wiki\\projects\\naeil-today.md",
+  "handoffDir": "C:\\Users\\<나>\\<vault>\\wiki\\projects\\naeil-handoff"
 }
 ```
 한 번 돌 때 순서:
-1. 받는 폴더(inbox)의 요청 파일 처리: 새 할 일, 하는 중, 끝, 멈춤, 되살리기. 휴지통과 지우기는 받지 않는다. 처리한 파일은 `처리함` 으로 옮기고 결과를 옆에 적는다
+1. 받는 폴더(inbox)의 요청 파일 처리: 새 할 일, 하는 중, 끝, 멈춤, 되살리기, 정할 것(질문, 선택지, 추천, 근거), 어디까지(한 줄). 휴지통과 지우기는 받지 않는다. 처리한 파일은 `처리함` 으로 옮기고 결과를 옆에 적는다
 2. 출처 가져오기. 출처 + 출처 번호가 같으면 같은 일 (두 번 돌려도 그대로)
    - vault 할 일 원장: 몫이 작가인 결정은 「내 결정 기다림」, AI 몫은 지금 할 것 후보에서 빠짐
    - 깃허브 이슈: 늘 AI 몫. 열린 이슈만 새로 넣고, 최근 30일 안에 닫힌 것은 이미 가져온 것만 끝냄. 본문은 안 가져옴(바깥 글). 비공개 저장소면 환경 변수 `NAEIL_GITHUB_TOKEN` (읽기 전용)
    - 이미 끝난 일은 새로 넣지 않는다. 작가가 휴지통에 넣은 것은 다시 꺼내지 않는다
    - 출처에서 바뀐 칸만 고친다. 작업판에서 끝내거나 이름을 바꾼 것을 출처가 그대로라는 이유로 되돌리지 않는다
-3. vault 에 「오늘 한 장」 쓰기: 지금 할 것, 내가 정할 것, 마감 가까운 것, 하는 중, AI 몫. vault 동기화로 클라우드 세션까지 간다
+3. vault 에 「오늘 한 장」 쓰기: 지금 할 것, 내가 정할 것(질문과 선택지), 마감 가까운 것, 하는 중(어디까지), AI 몫. vault 동기화로 클라우드 세션까지 간다
+4. `handoffDir` 이 있으면 열린 일이 있는 프로젝트마다 이어하기 한 장(목표, 남은 일, 바뀐 것, 근거, 막힌 것)을 쓴다. 이어하기 스위치를 끄면 안 쓴다
 
 - 한 출처가 실패해도 다음 출처는 돈다. 한 출처 안에서는 한 묶음 저장(중간 실패면 그 회차는 하나도 안 남음)
 - 지금 바로 한 번: `Start-ScheduledTask naeil-import`, 기록은 `logs\import.log`

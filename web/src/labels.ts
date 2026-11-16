@@ -19,6 +19,8 @@ export const ACTION: Record<string, string> = {
   trash: "휴지통",
   revive: "되살림",
   import: "가져옴",
+  ask: "정할 것 물음",
+  decide: "정함",
 };
 
 // 가져오기 기록 한 줄의 「무엇이 바뀌었나」 (M1-3)

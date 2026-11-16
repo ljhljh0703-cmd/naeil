@@ -10,6 +10,7 @@ export type Milestone = {
   projectId: string;
   name: string;
   dueAt: string | null;
+  doneWhen?: string | null;
   etag: string;
   createdAt: string;
   updatedAt: string;
@@ -26,6 +27,41 @@ export type ApiTask = Task & {
   deletedAt: string | null;
   owner?: "author" | "ai";
   sourceUrl?: string | null;
+  progressNote?: string | null;
+};
+
+export type Decision = {
+  id: string;
+  taskId: string;
+  question: string;
+  options: string[];
+  recommended: string | null;
+  basis: string | null;
+  askedBy: string;
+  askedAt: string;
+  answer: string | null;
+  note: string | null;
+  answeredBy: string | null;
+  answeredAt: string | null;
+};
+
+export type Setting = {
+  name: "handoff";
+  label: string;
+  enabled: boolean;
+  reason: string | null;
+  changedBy: string | null;
+  changedKind: string | null;
+  changedAt: string | null;
+};
+
+export type Notice = {
+  kind: "switch-off";
+  name: string;
+  label: string;
+  changedBy: string | null;
+  reason: string | null;
+  changedAt: string | null;
 };
 
 export type Change = {
@@ -118,6 +154,8 @@ export type Today = {
   skipped: string[];
   waitingOnMe: ApiTask[];
   dueSoon: ApiTask[];
+  decisions?: Decision[];
+  notices?: Notice[];
 };
 
 export const api = {
@@ -170,9 +208,25 @@ export const api = {
   createMilestone: (projectId: string, input: { name: string; dueAt?: string | null }) =>
     call<Milestone>("POST", `/v1/projects/${projectId}/milestones`, input, once()),
   // 목록에서 받은 판 표시(etag)를 같이 보낸다. 다른 곳에서 먼저 바뀌었으면 412
-  updateMilestone: (m: Milestone, patch: { name?: string; dueAt?: string | null }) =>
-    call<Milestone>("PATCH", `/v1/milestones/${m.id}`, patch, { "if-match": m.etag }),
+  updateMilestone: (
+    m: Milestone,
+    patch: { name?: string; dueAt?: string | null; doneWhen?: string | null },
+  ) => call<Milestone>("PATCH", `/v1/milestones/${m.id}`, patch, { "if-match": m.etag }),
   trashMilestone: (id: string) => call<null>("DELETE", `/v1/milestones/${id}`),
+  // 결정함 (M1-4): 열린 질문과 최근 답
+  decisions: () =>
+    call<{ items: Decision[] }>("GET", "/v1/decisions?limit=200").then((r) => r.items),
+  answer: (taskId: string, answer: string) =>
+    call<Decision>("POST", `/v1/tasks/${taskId}/decision/answer`, { answer }),
+  setProgress: (id: string, progressNote: string | null) =>
+    call<ApiTask>("PATCH", `/v1/tasks/${id}`, { progressNote }),
+  handoff: (scope: { taskId?: string; milestoneId?: string; projectId?: string }) => {
+    const [k, v] = Object.entries(scope)[0] ?? [];
+    return call<{ title: string; text: string }>("GET", `/v1/handoff?${k}=${v}`);
+  },
+  settings: () => call<{ items: Setting[] }>("GET", "/v1/settings").then((r) => r.items),
+  setSetting: (name: string, enabled: boolean) =>
+    call<Setting>("PUT", `/v1/settings/${name}`, { enabled }),
   // 서버가 계산한 오늘 (M1-7). 고정과 건너뛰기도 서버에 날짜별로
   today: () => call<Today>("GET", "/v1/today"),
   setToday: (state: { pinnedTaskId: string | null; skipped: string[] }) =>

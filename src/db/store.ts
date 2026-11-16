@@ -36,9 +36,11 @@ export type Milestone = {
   deleted_at: string | null;
   // 프로젝트와 같이 휴지통에 들어갔으면 그 프로젝트 번호 (004)
   trashed_with?: string | null;
+  // 이 마일스톤이 끝났다고 볼 기준 (007, 이어하기 한 장의 「목표」)
+  done_when?: string | null;
 };
 
-export type MilestonePatch = { name?: string; dueAt?: string | null };
+export type MilestonePatch = { name?: string; dueAt?: string | null; doneWhen?: string | null };
 
 export type Task = {
   id: string;
@@ -63,6 +65,46 @@ export type Task = {
   owner?: Owner;
   source_url?: string | null;
   source_seen?: string | null;
+  // 어디까지 했나 한 줄 (007)
+  progress_note?: string | null;
+};
+
+export type Decision = {
+  id: string;
+  workspace_id: string;
+  task_id: string;
+  question: string;
+  options: string; // JSON
+  recommended: string | null;
+  basis: string | null;
+  asked_by: string;
+  asked_at: string;
+  answer: string | null;
+  note: string | null;
+  answered_by: string | null;
+  answered_at: string | null;
+};
+export type DecisionAsk = {
+  question: string;
+  options?: string[];
+  recommended?: string | null;
+  basis?: string | null;
+};
+
+// 기능 스위치 (M1-4). 처음에는 모두 켜짐 (작가 결정 2026-11-13 「셋 다 켜짐」).
+// 스위치는 화면만 숨긴다. 경계 규칙(사람 확인 대기, 검증됨은 전용 출입증만)은 스위치와 무관하게 늘 적용
+export const SWITCHES = {
+  handoff: "이어하기",
+} as const;
+export type SwitchName = keyof typeof SWITCHES;
+export type Setting = {
+  name: SwitchName;
+  label: string;
+  enabled: boolean;
+  reason: string | null;
+  changedBy: string | null;
+  changedKind: string | null;
+  changedAt: string | null;
 };
 
 export type Owner = "author" | "ai";
@@ -73,7 +115,10 @@ export type ImportItem = {
   title: string;
   state: "open" | "done";
   owner: Owner;
-  decision?: boolean; // 작가가 정할 일이면 「내 결정 기다림」으로
+  decision?: boolean; // 작가가 정할 일이면 「내 결정 기다림」으로, 결정함에 질문을 남김
+  options?: string[];
+  recommended?: string | null;
+  basis?: string | null;
   dueAt?: string | null;
   body?: string | null;
   url?: string | null;
@@ -135,6 +180,7 @@ export type TaskPatch = {
   dueAt?: string | null;
   milestoneId?: string | null;
   owner?: Owner;
+  progressNote?: string | null;
 };
 
 type Clock = () => Date;
@@ -378,6 +424,12 @@ export class Store {
         args.push(due);
         changed.due_at = due;
       }
+      if (patch.doneWhen !== undefined) {
+        const v = patch.doneWhen?.trim() || null;
+        sets.push("done_when = ?");
+        args.push(v);
+        changed.done_when = v;
+      }
       if (sets.length === 0) return;
       this.bumpEntity("milestones", id, expectedVersion, sets.join(", "), args);
       this.log(who, "milestone", id, "update", changed);
@@ -573,6 +625,12 @@ export class Store {
       args.push(patch.owner);
       changed.owner = patch.owner;
     }
+    if (patch.progressNote !== undefined) {
+      const v = patch.progressNote?.trim() || null;
+      sets.push("progress_note = ?");
+      args.push(v);
+      changed.progress_note = v;
+    }
     if (patch.status !== undefined) {
       sets.push("status = ?");
       args.push(patch.status);
@@ -678,6 +736,8 @@ export class Store {
           url: it.url ?? null,
           owner: it.owner,
           decision: !!it.decision,
+          options: JSON.stringify(it.options ?? []),
+          recommended: it.recommended ?? null,
         };
         const t = this.db
           .prepare("SELECT * FROM tasks WHERE workspace_id = ? AND source = ? AND source_ref = ?")
@@ -694,12 +754,7 @@ export class Store {
             owner: it.owner,
             sourceUrl: it.url ?? undefined,
           });
-          const extra =
-            it.state === "done"
-              ? ", status = 'done'"
-              : it.decision
-                ? ", blocked_reason = 'my_decision'"
-                : "";
+          const extra = it.state === "done" ? ", status = 'done'" : "";
           this.bump(id, undefined, `source_seen = ?${extra}`, [JSON.stringify(seen)]);
           this.log(who, "task", id, "import", {
             source,
@@ -707,6 +762,8 @@ export class Store {
             title: it.title,
             change: "create",
           });
+          // 작가가 정할 일은 결정함에 질문으로 (선택지, 추천, 근거를 같이)
+          if (it.state === "open" && it.decision) this.askFromImport(who, id, it);
           r.created++;
           continue;
         }
@@ -741,26 +798,25 @@ export class Store {
           sets.push("status = 'todo'");
           change = "reopen";
         }
-        if (
-          moved("decision") &&
+        const reask =
           seen.decision &&
           seen.state === "open" &&
-          !t.blocked_reason &&
-          change !== "close"
-        ) {
-          sets.push("blocked_reason = 'my_decision'");
-        }
+          change !== "close" &&
+          t.status !== "done" &&
+          (moved("decision") || moved("title") || moved("options") || moved("recommended"));
         const seenText = JSON.stringify(seen);
         if (!sets.length) {
           // 고칠 것은 없어도 본 값은 새로 적는다 (다음 비교의 기준)
           if (seenText !== t.source_seen)
             this.db.prepare("UPDATE tasks SET source_seen = ? WHERE id = ?").run(seenText, t.id);
+          if (reask) this.askFromImport(who, t.id, it);
           r.same++;
           continue;
         }
         sets.push("source_seen = ?");
         args.push(seenText);
         this.bump(t.id, undefined, sets.join(", "), args);
+        if (reask) this.askFromImport(who, t.id, it);
         this.log(who, "task", t.id, "import", {
           source,
           ref: it.ref,
@@ -776,12 +832,175 @@ export class Store {
     return r;
   }
 
+  private askFromImport(who: Who, taskId: string, it: ImportItem) {
+    this.askDecision(who, taskId, {
+      question: it.title,
+      options: it.options,
+      recommended: it.recommended,
+      basis: it.basis,
+    });
+  }
+
   findBySource(source: string, ref: string): Task | undefined {
     return this.db
       .prepare(
         "SELECT * FROM tasks WHERE workspace_id = ? AND source = ? AND source_ref = ? AND deleted_at IS NULL",
       )
       .get(this.workspace, source, ref) as Task | undefined;
+  }
+
+  // ── 결정함 (M1-4) ──
+
+  // 정할 것을 묻는다: 질문, 선택지, 추천, 근거. 할 일은 「내 결정 기다림」으로 멈춘다.
+  // 이미 열린 질문이 있으면 그 질문을 고친다 (한 할 일에 열린 질문은 하나)
+  askDecision(who: Who, taskId: string, ask: DecisionAsk): void {
+    const { actor } = norm(who);
+    const question = ask.question.trim();
+    if (!question) throw new BadInput("질문이 비어 있음");
+    const options = [...new Set((ask.options ?? []).map((o) => o.trim()).filter(Boolean))];
+    this.db.transaction(() => {
+      const t = this.mustTask(taskId);
+      if (t.status === "done") {
+        throw new RuleViolation("decision-done", "끝난 일에는 정할 것을 붙이지 않는다");
+      }
+      const open = this.openDecision(taskId);
+      if (open) {
+        this.db
+          .prepare(
+            "UPDATE decisions SET question = ?, options = ?, recommended = ?, basis = ? WHERE id = ?",
+          )
+          .run(
+            question,
+            JSON.stringify(options),
+            ask.recommended ?? null,
+            ask.basis ?? null,
+            open.id,
+          );
+      } else {
+        this.db
+          .prepare(
+            `INSERT INTO decisions (id, workspace_id, task_id, question, options, recommended, basis, asked_by, asked_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            randomUUID(),
+            this.workspace,
+            taskId,
+            question,
+            JSON.stringify(options),
+            ask.recommended ?? null,
+            ask.basis ?? null,
+            actor,
+            this.now(),
+          );
+      }
+      if (t.blocked_reason !== "my_decision") {
+        this.bump(taskId, undefined, "blocked_reason = 'my_decision', held_by = NULL", []);
+      }
+      this.log(who, "task", taskId, "ask", { question, options });
+    })();
+  }
+
+  // 답한다: 고른 답을 남기고 멈춤을 푼다. 기다리던 세션은 GET 으로 답을 읽는다
+  answerDecision(who: Who, taskId: string, answer: string, note?: string | null): void {
+    const { actor } = norm(who);
+    const a = answer.trim();
+    if (!a) throw new BadInput("답이 비어 있음");
+    this.db.transaction(() => {
+      const t = this.mustTask(taskId);
+      const open = this.openDecision(taskId);
+      if (!open) throw new RuleViolation("no-open-decision", "답할 질문이 없음");
+      this.db
+        .prepare(
+          "UPDATE decisions SET answer = ?, note = ?, answered_by = ?, answered_at = ? WHERE id = ?",
+        )
+        .run(a, note?.trim() || null, actor, this.now(), open.id);
+      if (t.blocked_reason === "my_decision") {
+        this.bump(taskId, undefined, "blocked_reason = NULL, held_by = NULL", []);
+      }
+      this.log(who, "task", taskId, "decide", { question: open.question, answer: a });
+    })();
+  }
+
+  private openDecision(taskId: string): Decision | undefined {
+    return this.db
+      .prepare(
+        "SELECT * FROM decisions WHERE workspace_id = ? AND task_id = ? AND answered_at IS NULL",
+      )
+      .get(this.workspace, taskId) as Decision | undefined;
+  }
+
+  // 가장 최근 질문 (열린 것이 있으면 그것)
+  getDecision(taskId: string): Decision | undefined {
+    return (
+      this.openDecision(taskId) ??
+      (this.db
+        .prepare(
+          "SELECT * FROM decisions WHERE workspace_id = ? AND task_id = ? ORDER BY answered_at DESC LIMIT 1",
+        )
+        .get(this.workspace, taskId) as Decision | undefined)
+    );
+  }
+
+  // 열린 질문 전부 + 최근 답 (화면의 결정함, 오늘 한 장)
+  listDecisions(opts: { open?: boolean; limit?: number } = {}): Decision[] {
+    return this.db
+      .prepare(
+        `SELECT d.* FROM decisions d JOIN tasks t ON t.id = d.task_id
+         WHERE d.workspace_id = ? AND t.deleted_at IS NULL ${opts.open ? "AND d.answered_at IS NULL" : ""}
+         ORDER BY d.answered_at IS NOT NULL, COALESCE(d.answered_at, d.asked_at) DESC LIMIT ?`,
+      )
+      .all(this.workspace, opts.limit ?? 200) as Decision[];
+  }
+
+  // ── 기능 스위치 (M1-4) ──
+
+  listSettings(): Setting[] {
+    const rows = this.db
+      .prepare("SELECT * FROM settings WHERE workspace_id = ?")
+      .all(this.workspace) as {
+      name: string;
+      enabled: number;
+      reason: string | null;
+      changed_by: string;
+      changed_kind: string | null;
+      changed_at: string;
+    }[];
+    return (Object.keys(SWITCHES) as SwitchName[]).map((name) => {
+      const r = rows.find((x) => x.name === name);
+      return {
+        name,
+        label: SWITCHES[name],
+        enabled: r ? r.enabled === 1 : true,
+        reason: r?.reason ?? null,
+        changedBy: r?.changed_by ?? null,
+        changedKind: r?.changed_kind ?? null,
+        changedAt: r?.changed_at ?? null,
+      };
+    });
+  }
+
+  isOn(name: SwitchName): boolean {
+    return this.listSettings().find((s) => s.name === name)?.enabled ?? true;
+  }
+
+  // 작가와 AI 모두 바꿀 수 있다 (작가 결정 2026-11-13 「AI도 바꿀 수 있게」). AI 는 이유 한 줄이 필수
+  setSetting(who: Who, name: string, enabled: boolean, reason?: string | null): Setting {
+    if (!(name in SWITCHES)) throw new NotFound(`없는 스위치: ${name}`);
+    const { actor, kind } = norm(who);
+    const why = reason?.trim() || null;
+    if (kind === "ai" && !why) {
+      throw new RuleViolation("reason-required", "AI 가 스위치를 바꿀 때는 이유 한 줄이 필요");
+    }
+    this.db
+      .prepare(
+        `INSERT INTO settings (workspace_id, name, enabled, reason, changed_by, changed_kind, changed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (workspace_id, name) DO UPDATE SET enabled = excluded.enabled, reason = excluded.reason,
+           changed_by = excluded.changed_by, changed_kind = excluded.changed_kind, changed_at = excluded.changed_at`,
+      )
+      .run(this.workspace, name, enabled ? 1 : 0, why, actor, kind, this.now());
+    return this.listSettings().find((s) => s.name === name) as Setting;
   }
 
   // ── 변경 기록 ──

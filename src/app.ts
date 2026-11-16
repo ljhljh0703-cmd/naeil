@@ -17,6 +17,7 @@ import {
   type BlockedReason,
   type ChangeFilter,
   type ChangeRow,
+  type Decision,
   type Milestone,
   type MilestonePatch,
   type Project,
@@ -26,7 +27,16 @@ import {
   type Task,
   type TaskPatch,
 } from "./db/store.js";
-import { AppError, ERROR_DOCS, NotFound, Unauthorized, VersionMismatch } from "./errors.js";
+import {
+  AppError,
+  BadInput,
+  ERROR_DOCS,
+  NotFound,
+  RuleViolation,
+  Unauthorized,
+  VersionMismatch,
+} from "./errors.js";
+import { buildHandoff } from "./handoff.js";
 import { type DbState, dbChecker, type WebState } from "./health.js";
 import { IdempotencyStore, requestHash } from "./idempotency.js";
 import { VERSION } from "./paths.js";
@@ -75,6 +85,7 @@ export const toMilestone = (m: Milestone) => ({
   projectId: m.project_id,
   name: m.name,
   dueAt: m.due_at,
+  doneWhen: m.done_when ?? null,
   etag: etag(m),
   createdAt: m.created_at,
   updatedAt: m.updated_at,
@@ -96,6 +107,7 @@ export const toTask = (t: Task) => ({
   body: t.body,
   owner: t.owner ?? "author",
   sourceUrl: t.source_url ?? null,
+  progressNote: t.progress_note ?? null,
   createdAt: t.created_at,
   updatedAt: t.updated_at,
   deletedAt: t.deleted_at,
@@ -111,6 +123,21 @@ export const toChange = (c: ChangeRow) => ({
   entityId: c.entity_id,
   action: c.action,
   details: c.details ? JSON.parse(c.details) : null,
+});
+
+export const toDecision = (d: Decision) => ({
+  id: d.id,
+  taskId: d.task_id,
+  question: d.question,
+  options: JSON.parse(d.options) as string[],
+  recommended: d.recommended,
+  basis: d.basis,
+  askedBy: d.asked_by,
+  askedAt: d.asked_at,
+  answer: d.answer,
+  note: d.note,
+  answeredBy: d.answered_by,
+  answeredAt: d.answered_at,
 });
 
 const etag = (t: { version: number }) => `"v${t.version}"`;
@@ -511,13 +538,28 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     const tasks = s.listTasks();
     const state = s.getDay(day);
     const now = pickNow(tasks, { skipped: new Set(state.skipped), pinnedId: state.pinnedTaskId });
+    const waiting = waitingOnMe(tasks);
     return {
       day,
       now: now ? toTask(now) : null,
       pinnedTaskId: state.pinnedTaskId,
       skipped: state.skipped,
-      waitingOnMe: waitingOnMe(tasks).map(toTask),
+      waitingOnMe: waiting.map(toTask),
       dueSoon: dueSoon(tasks, clock()).map(toTask),
+      // 내가 정할 것의 질문 (결정함, M1-4)
+      decisions: s.listDecisions({ open: true }).map(toDecision),
+      // AI 가 끈 스위치는 다시 켤 때까지 오늘 화면 맨 위에 (작가 결정 2026-11-13)
+      notices: s
+        .listSettings()
+        .filter((x) => !x.enabled && x.changedKind === "ai")
+        .map((x) => ({
+          kind: "switch-off" as const,
+          name: x.name,
+          label: x.label,
+          changedBy: x.changedBy,
+          reason: x.reason,
+          changedAt: x.changedAt,
+        })),
     };
   };
 
@@ -532,6 +574,59 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     const b = req.body as { pinnedTaskId: string | null; skipped: string[] };
     storeFor(req).setDay(day, b);
     return todayBody(req, day);
+  });
+
+  // ── 결정함 (M1-4) ──
+  route("GET", "/v1/decisions", async (req) => {
+    const q = req.query as { open?: boolean; limit: number };
+    return { items: storeFor(req).listDecisions(q).map(toDecision) };
+  });
+
+  route("GET", "/v1/tasks/{taskId}/decision", async (req) => {
+    const { taskId } = req.params as { taskId: string };
+    const s = storeFor(req);
+    if (!s.getTask(taskId)) throw new NotFound(`할 일이 없음: ${taskId}`);
+    const d = s.getDecision(taskId);
+    if (!d) throw new NotFound("이 할 일에 정할 것이 없음");
+    return toDecision(d);
+  });
+
+  route("PUT", "/v1/tasks/{taskId}/decision", async (req) => {
+    const { taskId } = req.params as { taskId: string };
+    const s = storeFor(req);
+    s.askDecision(req.who, taskId, req.body as Parameters<Store["askDecision"]>[2]);
+    return toDecision(s.getDecision(taskId) as Decision);
+  });
+
+  route("POST", "/v1/tasks/{taskId}/decision/answer", async (req) => {
+    const { taskId } = req.params as { taskId: string };
+    const b = req.body as { answer: string; note?: string };
+    const s = storeFor(req);
+    s.answerDecision(req.who, taskId, b.answer, b.note);
+    return toDecision(s.getDecision(taskId) as Decision);
+  });
+
+  // ── 이어하기 한 장 (M1-4) ──
+  route("GET", "/v1/handoff", async (req) => {
+    const q = req.query as { projectId?: string; milestoneId?: string; taskId?: string };
+    const s = storeFor(req);
+    if (!s.isOn("handoff")) {
+      throw new RuleViolation("switch-off", "이어하기 스위치가 꺼져 있음. 설정에서 켜면 바로 됨");
+    }
+    const given = [q.projectId, q.milestoneId, q.taskId].filter(Boolean).length;
+    if (given !== 1) throw new BadInput("projectId, milestoneId, taskId 중 하나만");
+    const out = buildHandoff(s, q, clock());
+    if (!out) throw new NotFound("대상이 없음");
+    return out;
+  });
+
+  // ── 기능 스위치 (M1-4) ──
+  route("GET", "/v1/settings", async (req) => ({ items: storeFor(req).listSettings() }));
+
+  route("PUT", "/v1/settings/{name}", async (req) => {
+    const { name } = req.params as { name: string };
+    const b = req.body as { enabled: boolean; reason?: string };
+    return storeFor(req).setSetting(req.who, name, b.enabled, b.reason);
   });
 
   // ── 화면 ──
