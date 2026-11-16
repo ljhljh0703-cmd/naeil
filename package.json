@@ -55,7 +55,7 @@
     "playwright": "1.65.0",
     "sql.js": "^1.16.0",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vite": "^8.3.5",
     "vitest": "^5.0.5"
   }
