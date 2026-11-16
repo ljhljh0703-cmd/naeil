@@ -53,6 +53,16 @@ export async function run({ page, ok, until, api, base }) {
     await until(async () => (await heroTitle(one.p)) === third),
     "처음 기기도 새로 불러오면 같은 지금 할 것",
   );
+  // 최근 7일 (M1-5): 맨 아래 접힌 줄을 펼치면 오늘 연 시각과 내가 바꾼 수
+  await one.p.locator(".usage summary").click();
+  ok(
+    await until(async () => {
+      const t = await one.p.locator(".usage li").first().textContent();
+      return /엶/.test(t ?? "") && /내가 \d+/.test(t ?? "");
+    }),
+    "최근 7일을 펼치면 오늘 연 시각과 내가 바꾼 수",
+  );
+  ok((await one.p.locator(".usage li").count()) === 7, "최근 7일은 일곱 줄");
   await one.ctx.close();
   await two.ctx.close();
 }

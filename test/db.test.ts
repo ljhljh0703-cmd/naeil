@@ -24,8 +24,10 @@ describe("표 구조 변경", () => {
       "005_kinds_today",
       "006_owner_url",
       "007_handoff_decisions",
+      "008_usage",
     ]);
     expect(migrateUp(db)).toEqual([]); // 두 번 돌려도 그대로
+    expect(migrateDownOne(db)).toBe("008_usage");
     expect(migrateDownOne(db)).toBe("007_handoff_decisions");
     expect(migrateDownOne(db)).toBe("006_owner_url");
     expect(migrateDownOne(db)).toBe("005_kinds_today");
@@ -46,6 +48,7 @@ describe("표 구조 변경", () => {
       "005_kinds_today",
       "006_owner_url",
       "007_handoff_decisions",
+      "008_usage",
     ]);
   });
 
@@ -161,6 +164,7 @@ describe("예시 데이터", () => {
 describe("프로젝트·마일스톤 판 번호", () => {
   it("003은 기존 행과 연결을 보존하며 올리고 되돌리고 다시 올린다", () => {
     const db = freshDb();
+    expect(migrateDownOne(db)).toBe("008_usage");
     expect(migrateDownOne(db)).toBe("007_handoff_decisions");
     expect(migrateDownOne(db)).toBe("006_owner_url");
     expect(migrateDownOne(db)).toBe("005_kinds_today");
@@ -201,7 +205,9 @@ describe("프로젝트·마일스톤 판 번호", () => {
       "005_kinds_today",
       "006_owner_url",
       "007_handoff_decisions",
+      "008_usage",
     ]);
+    expect(migrateDownOne(db)).toBe("008_usage");
     expect(migrateDownOne(db)).toBe("007_handoff_decisions");
     expect(migrateDownOne(db)).toBe("006_owner_url");
     expect(migrateDownOne(db)).toBe("005_kinds_today");
@@ -222,6 +228,7 @@ describe("프로젝트·마일스톤 판 번호", () => {
       "005_kinds_today",
       "006_owner_url",
       "007_handoff_decisions",
+      "008_usage",
     ]);
     expect(store.getProject(p)?.version).toBe(1);
     expect(store.getMilestone(m)?.version).toBe(1);

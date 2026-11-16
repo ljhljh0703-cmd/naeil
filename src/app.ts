@@ -250,6 +250,14 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
   });
   app.addHook("preHandler", async (req) => {
     if (!req.key) return;
+    // 사람 출입증으로 그날 처음 부른 시각 (M1-5 사용 기록). 기록 실패가 요청을 막지 않게
+    if (req.key.kind === "human") {
+      try {
+        new Store(db, req.key.workspace, clock).markOpened(kstDate(clock()));
+      } catch (err) {
+        req.log.warn({ err }, "사용 기록 실패");
+      }
+    }
     const session = req.headers["x-naeil-session"];
     req.who = {
       actor: req.key.name,
@@ -618,6 +626,18 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     const out = buildHandoff(s, q, clock());
     if (!out) throw new NotFound("대상이 없음");
     return out;
+  });
+
+  // ── 날짜별 사용 기록 (M1-5) ──
+  route("GET", "/v1/usage", async (req) => {
+    const q = req.query as { since?: string; until?: string };
+    const until = q.until ?? kstDate(clock());
+    const since =
+      q.since ?? kstDate(new Date(Date.parse(`${until}T00:00:00+09:00`) - 6 * 86_400_000));
+    if (since > until) throw new BadInput("since 가 until 보다 뒤");
+    const span = (Date.parse(until) - Date.parse(since)) / 86_400_000;
+    if (span > 92) throw new BadInput("한 번에 93일까지");
+    return { items: storeFor(req).usage(since, until) };
   });
 
   // ── 기능 스위치 (M1-4) ──
