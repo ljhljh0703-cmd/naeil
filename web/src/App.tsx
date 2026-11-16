@@ -112,6 +112,7 @@ export function App() {
   const [hasKey, setHasKey] = useState(() => !!getKey());
   const [keyError, setKeyError] = useState<string>();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [trashedProjects, setTrashedProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [changes, setChanges] = useState<Change[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
@@ -145,9 +146,15 @@ export function App() {
 
   const reload = useCallback(async () => {
     try {
-      const [p, t, c] = await Promise.all([api.projects(), api.allTasks(), api.changes()]);
+      const [p, t, c, gone] = await Promise.all([
+        api.projects(),
+        api.allTasks(),
+        api.changes(),
+        api.trashedProjects(),
+      ]);
       const m = await api.allMilestones(p);
       setProjects(p);
+      setTrashedProjects(gone);
       setMilestones(m);
       setTasks(t);
       setChanges(c);
@@ -519,6 +526,7 @@ export function App() {
         ) : page === "milestones" ? (
           <Board
             ctx={ctx}
+            trashed={trashedProjects}
             projectId={boardProject}
             onProject={setBoardProject}
             onOpen={openItem}

@@ -19,7 +19,7 @@ if (!existsSync(entry) || !existsSync(join(root, "web", "dist", "index.html"))) 
   process.exit(1);
 }
 
-const ALL = ["basics", "board", "panel", "phone"];
+const ALL = ["basics", "board", "panel", "phone", "trash"];
 const pick = process.argv.slice(2);
 const flows = pick.length > 0 ? pick : ALL;
 

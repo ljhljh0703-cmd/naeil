@@ -12,7 +12,7 @@ import {
 import { type ActFn, CardList, type OpenFn } from "./ItemViews.js";
 import { type CardModel, type Ctx, cardOf, hrefFor, type ItemRef, refKey } from "./items.js";
 import { dLabel } from "./labels.js";
-import { dDay, dueFromKstDate } from "./today.js";
+import { dDay, dueFromKstDate, kstDate } from "./today.js";
 
 function Bar({ p, label }: { p: Progress; label: string }) {
   const done = p.total ? (p.done / p.total) * 100 : 0;
@@ -35,6 +35,7 @@ const progressLabel = (p: Progress) =>
 
 export function Board({
   ctx,
+  trashed,
   projectId,
   onProject,
   onOpen,
@@ -44,6 +45,7 @@ export function Board({
   onError,
 }: {
   ctx: Ctx;
+  trashed: Project[];
   projectId: string | null;
   onProject: (id: string) => void;
   onOpen: OpenFn;
@@ -53,7 +55,23 @@ export function Board({
   onError: (m: string) => void;
 }) {
   const project = ctx.projects.find((p) => p.id === projectId) ?? ctx.projects[0];
-  if (!project) return <NewProject onDone={onReload} onError={onError} onCreated={onProject} />;
+  const bin = (
+    <TrashBin
+      trashed={trashed}
+      onRevived={(id) => {
+        onProject(id);
+        return onReload();
+      }}
+      onError={onError}
+    />
+  );
+  if (!project)
+    return (
+      <>
+        <NewProject onDone={onReload} onError={onError} onCreated={onProject} />
+        {bin}
+      </>
+    );
 
   const groups = groupBoard(project.id, ctx.milestones, ctx.tasks);
   const all = progressOf(ctx.tasks.filter((t) => t.projectId === project.id && !t.deletedAt));
@@ -87,6 +105,18 @@ export function Board({
             {next.dueAt && <span className="chip">{dLabel(dDay(next.dueAt, ctx.now))}</span>}
           </p>
         )}
+        <TrashProject
+          key={project.id}
+          project={project}
+          milestones={ctx.milestones.filter((m) => m.projectId === project.id).length}
+          tasks={ctx.tasks.filter((t) => t.projectId === project.id && !t.deletedAt).length}
+          onTrashed={() => {
+            const rest = ctx.projects.find((p) => p.id !== project.id);
+            if (rest) onProject(rest.id);
+            return onReload();
+          }}
+          onError={onError}
+        />
       </section>
 
       <ol className="milestones">
@@ -110,7 +140,113 @@ export function Board({
         onDone={onReload}
         onError={onError}
       />
+      {bin}
     </>
+  );
+}
+
+// 프로젝트 휴지통으로: 한 번 더 묻는다 (안의 것도 같이 들어감). 브라우저 확인 창은 쓰지 않는다
+function TrashProject({
+  project,
+  milestones,
+  tasks,
+  onTrashed,
+  onError,
+}: {
+  project: Project;
+  milestones: number;
+  tasks: number;
+  onTrashed: () => Promise<void>;
+  onError: (m: string) => void;
+}) {
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!asking)
+    return (
+      <p className="board-tools">
+        <button type="button" className="ghost small danger" onClick={() => setAsking(true)}>
+          프로젝트 휴지통으로
+        </button>
+      </p>
+    );
+  const go = async () => {
+    setBusy(true);
+    try {
+      await api.trashProject(project.id);
+      await onTrashed();
+    } catch (err) {
+      onError((err as Error).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <fieldset className="confirm" aria-label="프로젝트 휴지통으로">
+      <p>
+        <strong>{project.name}</strong> 프로젝트
+        {milestones || tasks
+          ? `와 안의 마일스톤 ${milestones}개, 할 일 ${tasks}개를 휴지통에 넣습니다.`
+          : "를 휴지통에 넣습니다."}{" "}
+        휴지통에서 되살리면 같이 돌아옵니다.
+      </p>
+      <div className="row">
+        <button type="button" className="danger" disabled={busy} onClick={go}>
+          휴지통에 넣기
+        </button>
+        <button type="button" className="ghost" disabled={busy} onClick={() => setAsking(false)}>
+          그만두기
+        </button>
+      </div>
+    </fieldset>
+  );
+}
+
+// 휴지통에 든 프로젝트. 되살리면 같이 들어간 마일스톤과 할 일도 돌아온다
+function TrashBin({
+  trashed,
+  onRevived,
+  onError,
+}: {
+  trashed: Project[];
+  onRevived: (id: string) => Promise<void>;
+  onError: (m: string) => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  if (!trashed.length) return null;
+  const revive = async (id: string) => {
+    setBusy(id);
+    try {
+      await api.reviveProject(id);
+      await onRevived(id);
+    } catch (err) {
+      onError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <section className="card trash-bin" aria-labelledby="trash-title">
+      <h2 id="trash-title">휴지통</h2>
+      <ul className="plain">
+        {trashed.map((p) => (
+          <li key={p.id} className="row spread">
+            <span>
+              {p.name}
+              {p.deletedAt && (
+                <span className="muted"> {kstDate(new Date(p.deletedAt))} 에 넣음</span>
+              )}
+            </span>
+            <button
+              type="button"
+              className="small"
+              disabled={busy === p.id}
+              onClick={() => revive(p.id)}
+            >
+              되살리기
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

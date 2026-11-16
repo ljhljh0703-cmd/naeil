@@ -336,6 +336,14 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     return reply.code(204).send();
   });
 
+  route("POST", "/v1/projects/{projectId}/revive", async (req, reply) => {
+    const { projectId } = req.params as { projectId: string };
+    const s = storeFor(req);
+    s.reviveProject(req.who, projectId);
+    const p = s.getProject(projectId) as Project;
+    return reply.header("ETag", etag(p)).send(toProject(p));
+  });
+
   // ── 마일스톤 ──
   route("GET", "/v1/projects/{projectId}/milestones", async (req) => {
     const { projectId } = req.params as { projectId: string };
