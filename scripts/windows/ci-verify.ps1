@@ -12,7 +12,7 @@ function ServerPid {
   if ($p) { return [int]$p.ProcessId } else { return $null }
 }
 function ServiceLogs {
-  foreach ($f in @('service.log', 'server.err.log', 'backup.log', 'backup.err.log')) {
+  foreach ($f in @('service.log', 'server.err.log', 'backup.log', 'backup.err.log', 'import.log', 'import.err.log')) {
     $p = Join-Path $LogDir $f
     if (Test-Path $p) { Write-Host "--- $f"; Get-Content $p -Tail 30 }
   }
@@ -27,6 +27,8 @@ $t = Get-ScheduledTask -TaskName $TaskServer -ErrorAction SilentlyContinue
 Check '서버 작업 등록 (컴퓨터 켜질 때, 로그인 없이)' ($t -and $t.Triggers[0].CimClass.CimClassName -eq 'MSFT_TaskBootTrigger' -and $t.Principal.LogonType -eq 'S4U') "$($t.Triggers[0].CimClass.CimClassName) $($t.Principal.LogonType)"
 $b = Get-ScheduledTask -TaskName $TaskBackup -ErrorAction SilentlyContinue
 Check '매일 백업 작업 등록 (놓치면 켜질 때)' ($b -and $b.Settings.StartWhenAvailable) ''
+$imp = Get-ScheduledTask -TaskName $TaskImport -ErrorAction SilentlyContinue
+Check '가져오기 작업 등록 (한 시간마다)' ($imp -and $imp.Triggers[0].Repetition.Interval -eq 'PT1H') "$($imp.Triggers[0].Repetition.Interval)"
 $web = try { (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/").StatusCode } catch { 0 }
 Check '첫 주소가 화면을 엶' ($web -eq 200) "$web"
 Check '자료 파일이 앱 폴더에 생김' (Test-Path $Db) $Db
@@ -64,6 +66,24 @@ Check '복원 연습 통과' ((Test-Path $drill) -and (Get-Content $drill -Raw |
 $h4 = Get-Health
 Check '상태 확인 백업 칸 ok' ($h4 -match '"backup":"ok"') $h4
 
+# 4-1. 가져오기: 설정이 없으면 할 일 없이 0, 있으면 vault 원장을 넣고 오늘 한 장을 씀
+Start-ScheduledTask -TaskName $TaskImport
+$end = (Get-Date).AddSeconds(60)
+do { Start-Sleep -Seconds 2; $ii = Get-ScheduledTaskInfo -TaskName $TaskImport; $is = (Get-ScheduledTask -TaskName $TaskImport).State } while ((Get-Date) -lt $end -and $is -eq 'Running')
+Check '가져오기 작업, 설정 없이 결과 0' ($ii.LastTaskResult -eq 0) "결과 $($ii.LastTaskResult)"
+$vault = Join-Path $env:RUNNER_TEMP 'vault'
+New-Item -ItemType Directory -Force -Path (Join-Path $vault 'inbox') | Out-Null
+$ledger = '{"출처":"vault-maintenance","할일":[{"번호":"vm-1","제목":"윈도우 가져오기 시험","몫":"작가","종류":"할 일","상태":"열림"}]}'
+[System.IO.File]::WriteAllText((Join-Path $vault 'naeil-source.json'), $ledger, (New-Object System.Text.UTF8Encoding $false))
+$cfg = @{ sources = @(@{ type = 'vault-json'; path = (Join-Path $vault 'naeil-source.json'); project = 'vault 유지보수' }); todaySheet = (Join-Path $vault 'naeil-today.md'); inbox = (Join-Path $vault 'inbox') } | ConvertTo-Json -Depth 4
+[System.IO.File]::WriteAllText((Join-Path $AppHome 'import.json'), $cfg, (New-Object System.Text.UTF8Encoding $false))
+Start-ScheduledTask -TaskName $TaskImport
+$end = (Get-Date).AddSeconds(60)
+do { Start-Sleep -Seconds 2; $ii = Get-ScheduledTaskInfo -TaskName $TaskImport; $is = (Get-ScheduledTask -TaskName $TaskImport).State } while ((Get-Date) -lt $end -and $is -eq 'Running')
+Check '가져오기 작업, 설정대로 결과 0' ($ii.LastTaskResult -eq 0) "결과 $($ii.LastTaskResult)"
+$sheet = Join-Path $vault 'naeil-today.md'
+Check '오늘 한 장에 가져온 일이 보임' ((Test-Path $sheet) -and ((Get-Content $sheet -Raw -Encoding UTF8) -match '윈도우 가져오기 시험')) ''
+
 # 5. 다시 배포 → 판이 바뀌고 자료는 그대로
 $before = Get-CurrentTarget
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'deploy.ps1') -SkipBuild
@@ -93,7 +113,7 @@ Check '상태 보기 스크립트' ($LASTEXITCODE -eq 0 -or $null -eq $LASTEXITC
 # 9. 지우기: 등록만 지우고 자료는 남김
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'uninstall.ps1')
 Check '지우기 성공' ($LASTEXITCODE -eq 0) "$LASTEXITCODE"
-Check '자동 실행 등록이 사라짐' (-not (Get-ScheduledTask -TaskName $TaskServer -ErrorAction SilentlyContinue) -and -not (Get-ScheduledTask -TaskName $TaskBackup -ErrorAction SilentlyContinue)) ''
+Check '자동 실행 등록이 사라짐' (-not (Get-ScheduledTask -TaskName $TaskServer -ErrorAction SilentlyContinue) -and -not (Get-ScheduledTask -TaskName $TaskBackup -ErrorAction SilentlyContinue) -and -not (Get-ScheduledTask -TaskName $TaskImport -ErrorAction SilentlyContinue)) ''
 Check '서버가 꺼짐' (-not (Test-Listening) -and -not (ServerPid)) ''
 Check '자료 파일과 백업은 남음' ((Test-Path $Db) -and (@(Get-ChildItem (Join-Path $AppHome 'backups') -Filter 'naeil-*.db').Count -ge 1)) ''
 

@@ -4,7 +4,7 @@
 // 새 종류(마일스톤 · AI 세션 · 스킬)는 registerItemType 하나로 끼운다. 칸 모양은 공통 틀이 그린다.
 import type { ApiTask, Change, Milestone, Project } from "./api.js";
 import { groupBoard, isComplete, progressOf, sortForBoard } from "./board.js";
-import { ACTION, BLOCKED, dayOf, dLabel, STATUS, timeOf, whoOf } from "./labels.js";
+import { ACTION, BLOCKED, dayOf, dLabel, IMPORT_CHANGE, STATUS, timeOf, whoOf } from "./labels.js";
 import { dDay, kstDate, type Status } from "./today.js";
 
 export type ItemType = "task" | "change" | "milestone";
@@ -130,7 +130,45 @@ function changeText(c: Change): string {
   if (c.action === "block" && typeof d.reason === "string") {
     return `${base}: ${BLOCKED[d.reason as keyof typeof BLOCKED] ?? d.reason}`;
   }
+  if (c.action === "import" && typeof d.change === "string") {
+    return IMPORT_CHANGE[d.change] ?? base;
+  }
   return base;
+}
+
+// 「마지막에 한 일」에서 같은 가져오기 회차(같은 누가, 10분 안)의 줄을 한 줄로 접는다 (M1-3).
+// 이슈 40개를 넣어도 마지막에 한 일이 가져오기 줄로 덮이지 않게 (2026-11-13 검토)
+export type RecentRow = { change: Change; group?: Change[] };
+export function foldImports(changes: Change[], within = 10 * 60_000): RecentRow[] {
+  const out: RecentRow[] = [];
+  for (const c of changes) {
+    const prev = out.at(-1);
+    const head = prev?.group?.[0] ?? prev?.change;
+    if (
+      c.action === "import" &&
+      prev &&
+      head?.action === "import" &&
+      head.actor === c.actor &&
+      Math.abs(Date.parse(head.at) - Date.parse(c.at)) <= within
+    ) {
+      prev.group = [...(prev.group ?? [prev.change]), c];
+      continue;
+    }
+    out.push({ change: c });
+  }
+  return out;
+}
+
+export function importSummary(group: Change[]): string {
+  const n: Record<string, number> = {};
+  for (const c of group) {
+    const k = typeof c.details?.change === "string" ? c.details.change : "update";
+    n[k] = (n[k] ?? 0) + 1;
+  }
+  const parts = (["create", "close", "reopen", "update"] as const)
+    .filter((k) => n[k])
+    .map((k) => `${IMPORT_CHANGE[k]} ${n[k]}`);
+  return `가져오기 ${group.length}건: ${parts.join(", ")}`;
 }
 
 export function taskChips(t: ApiTask, ctx: Ctx): Chip[] {
@@ -140,6 +178,7 @@ export function taskChips(t: ApiTask, ctx: Ctx): Chip[] {
     const d = dDay(t.dueAt, ctx.now);
     chips.push({ label: dLabel(d), tone: d < 0 ? "fail" : d <= 1 ? "warn" : "neutral" });
   }
+  if (t.owner === "ai") chips.push({ label: "AI 몫", tone: "neutral" });
   if (t.externalText) chips.push({ label: "바깥에서 온 글", tone: "neutral" });
   return chips.slice(0, 3);
 }
@@ -214,6 +253,8 @@ registerItemType<ApiTask>("task", {
               label: "출처",
               value: t.source === "direct" ? null : `${t.source} ${t.sourceRef ?? ""}`,
             },
+            { label: "원문", value: t.sourceUrl ?? null },
+            { label: "몫", value: t.owner === "ai" ? "AI 몫 (지금 할 것 후보에서 빠짐)" : null },
             { label: "만든 날", value: timeOf(t.createdAt) },
             { label: "마지막으로 바뀜", value: timeOf(t.updatedAt) },
           ],
@@ -274,6 +315,9 @@ const DETAIL_KEY: Record<string, string> = {
   due_at: "마감",
   milestone_id: "마일스톤",
   cleared_block: "같이 풀린 멈춤",
+  change: "가져오기",
+  ref: "출처 번호",
+  owner: "몫",
   milestones: "같이 옮긴 마일스톤",
   tasks: "같이 옮긴 할 일",
 };

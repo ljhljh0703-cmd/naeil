@@ -24,12 +24,15 @@ export type ApiTask = Task & {
   body: string | null;
   updatedAt: string;
   deletedAt: string | null;
+  owner?: "author" | "ai";
+  sourceUrl?: string | null;
 };
 
 export type Change = {
   id: number;
   at: string;
   actor: string;
+  actorKind?: "human" | "ai" | "ci" | null;
   session: string | null;
   entity: "project" | "milestone" | "task";
   entityId: string;

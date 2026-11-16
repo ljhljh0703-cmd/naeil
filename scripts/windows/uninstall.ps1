@@ -3,7 +3,7 @@
 # 폰 주소까지 닫으려면: powershell -ExecutionPolicy Bypass -File scripts\windows\phone.ps1 -Off
 . "$PSScriptRoot\common.ps1"
 Stop-Naeil
-foreach ($name in @($TaskServer, $TaskBackup)) {
+foreach ($name in @($TaskServer, $TaskBackup, $TaskImport)) {
   if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
     Unregister-ScheduledTask -TaskName $name -Confirm:$false
   }

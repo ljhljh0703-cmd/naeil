@@ -15,6 +15,7 @@
 #   6) 바꿔 끼우기   current 를 새 판으로 (지금 켜진 서버는 끄고)
 #   7) 자동 실행     naeil-server (컴퓨터 켜질 때, 실행기가 죽으면 다시 켬)
 #                    naeil-backup (매일 새벽 4시 17분, 그 시각에 꺼져 있었으면 켜질 때)
+#                    naeil-import (한 시간마다 가져오기. 설정 import.json 이 있을 때만 일을 함)
 #   8) 확인          상태 확인이 200 이 될 때까지 기다림. 안 되면 이전 판으로 되돌리고 실패로 끝남
 #
 # 바꿀 수 있는 값 (환경 변수): NAEIL_NODE(쓸 node 경로), NAEIL_PORT(기본 3700), NAEIL_APP_HOME(시험용 자리)
@@ -120,7 +121,16 @@ $backupSet = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGo
 $backupAct = New-ScheduledTaskAction -Execute $Node -Argument ('"{0}" backup "{1}"' -f $Svc, $AppHome) -WorkingDirectory $AppHome
 Register-ScheduledTask -TaskName $TaskBackup -Description 'naeil 매일 백업 (scripts/windows/deploy.ps1 이 등록)' `
   -Action $backupAct -Trigger (New-ScheduledTaskTrigger -Daily -At '04:17') -Principal $principal -Settings $backupSet -Force | Out-Null
-Write-Host "등록: $TaskServer (컴퓨터 켜질 때), $TaskBackup (매일 04:17)"
+# 가져오기: 한 시간마다 (vault 받는 폴더 처리, 출처 가져오기, 오늘 한 장). 설정이 없으면 할 일 없이 끝남
+$importSet = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
+  -ExecutionTimeLimit (New-TimeSpan -Minutes 15) -MultipleInstances IgnoreNew
+$importAct = New-ScheduledTaskAction -Execute $Node -Argument ('"{0}" import "{1}"' -f $Svc, $AppHome) -WorkingDirectory $AppHome
+$importTrig = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(5) -RepetitionInterval (New-TimeSpan -Hours 1)
+Register-ScheduledTask -TaskName $TaskImport -Description 'naeil 가져오기, 한 시간마다 (scripts/windows/deploy.ps1 이 등록)' `
+  -Action $importAct -Trigger $importTrig -Principal $principal -Settings $importSet -Force | Out-Null
+$importCfg = Join-Path $AppHome 'import.json'
+if (-not (Test-Path $importCfg)) { Write-Host "가져오기 설정이 아직 없음: $importCfg (docs/ops/running.md 「가져오기와 vault 다리」)" }
+Write-Host "등록: $TaskServer (컴퓨터 켜질 때), $TaskBackup (매일 04:17), $TaskImport (한 시간마다)"
 Start-Naeil
 
 Say '8) 확인'

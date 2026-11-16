@@ -26,7 +26,8 @@ export function pickNow(
   tasks: Task[],
   opts: { skipped?: ReadonlySet<string>; pinnedId?: string | null } = {},
 ): Task | null {
-  const mine = tasks.filter((t) => open(t) && !t.blocked_reason);
+  // AI 몫(가져온 깃허브 이슈 등)은 후보에서 뺀다 (작가 결정 2026-11-13 「AI 몫으로」)
+  const mine = tasks.filter((t) => open(t) && !t.blocked_reason && t.owner !== "ai");
   const pinned = mine.find((t) => t.id === opts.pinnedId);
   if (pinned) return pinned;
   const rest = mine.filter((t) => !opts.skipped?.has(t.id));

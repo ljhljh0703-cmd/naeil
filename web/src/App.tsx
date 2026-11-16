@@ -18,7 +18,9 @@ import {
   type Ctx,
   cardOf,
   detailOf,
+  foldImports,
   type ItemRef,
+  importSummary,
   parseRef,
   refKey,
 } from "./items.js";
@@ -304,9 +306,12 @@ export function App() {
     ...c,
     status: undefined,
   }));
-  const recentCards = changes
+  const recentCards = foldImports(changes)
     .slice(0, 6)
-    .map((c) => cardOf(ctx, { type: "change", id: String(c.id) }))
+    .map((row) => {
+      const c = cardOf(ctx, { type: "change", id: String(row.change.id) });
+      return c && row.group ? { ...c, title: importSummary(row.group) } : c;
+    })
     .filter((c): c is CardModel => !!c);
   const allCards = cards(tasks, (t) =>
     t.status !== "done" ? { id: "done", label: "끝냄" } : undefined,

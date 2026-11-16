@@ -1,6 +1,7 @@
 // 윈도우 상시 서버의 실행기. 작업 스케줄러가 이 파일을 부른다 (맥은 launchd 가 같은 일을 한다).
 //   node service.mjs server <앱 폴더>   서버를 켜고, 0 이 아닌 코드로 끝나면 잠깐 뒤 다시 켠다. 0 이면 같이 끝난다
 //   node service.mjs backup <앱 폴더>   매일 백업 한 번 (백업 + 복원 연습 + 오래된 것 정리)
+//   node service.mjs import <앱 폴더>   가져오기 한 번 (vault 받는 폴더, 출처 가져오기, 오늘 한 장. 설정은 <앱 폴더>/import.json)
 // 설정은 <앱 폴더>/service.json (배포 스크립트가 씀): { port, db, logDir, restartDelayMs? }
 // 서버는 <앱 폴더>/current 의 판으로 켠다. 판을 바꿔 끼운 뒤 다시 켜면 새 판이 뜬다.
 //
@@ -133,14 +134,16 @@ export function runServer(appHome, { node = process.execPath } = {}) {
   return { stop, state };
 }
 
-export function runBackup(appHome, { node = process.execPath } = {}) {
+// 한 번 돌고 끝나는 일 (매일 백업, 가져오기). 종료 코드를 그대로 돌려준다
+export function runOnce(appHome, name, script, args, { node = process.execPath } = {}) {
   const cfg = readServiceConfig(appHome);
   mkdirSync(cfg.logDir, { recursive: true });
-  const out = logStream(join(cfg.logDir, "backup.log"));
-  const err = logStream(join(cfg.logDir, "backup.err.log"));
-  const entry = join(appHome, "current", "dist", "cli", "backup.js");
-  out(stamp("매일 백업 시작"));
-  const child = spawn(node, [entry, "run"], {
+  const out = logStream(join(cfg.logDir, `${name}.log`));
+  const err = logStream(join(cfg.logDir, `${name}.err.log`));
+  const entry = join(appHome, "current", "dist", ...script);
+  const label = name === "backup" ? "매일 백업" : "가져오기";
+  out(stamp(`${label} 시작`));
+  const child = spawn(node, [entry, ...args], {
     cwd: join(appHome, "current"),
     env: childEnv(cfg),
     stdio: ["ignore", "pipe", "pipe"],
@@ -149,17 +152,26 @@ export function runBackup(appHome, { node = process.execPath } = {}) {
   child.stdout.on("data", out);
   child.stderr.on("data", err);
   child.once("exit", (code) => {
-    out(stamp(`매일 백업 끝 (코드 ${code})`));
+    out(stamp(`${label} 끝 (코드 ${code})`));
     process.exit(code ?? 1);
   });
 }
 
+export function runBackup(appHome, opts) {
+  runOnce(appHome, "backup", ["cli", "backup.js"], ["run"], opts);
+}
+
+export function runImportOnce(appHome, opts) {
+  runOnce(appHome, "import", ["cli", "import.js"], [], opts);
+}
+
 const [mode, appHome] = process.argv.slice(2);
 if (process.argv[1]?.endsWith("service.mjs")) {
-  if (!appHome || !["server", "backup"].includes(mode)) {
-    console.error("쓰는 법: node service.mjs <server|backup> <앱 폴더>");
+  if (!appHome || !["server", "backup", "import"].includes(mode)) {
+    console.error("쓰는 법: node service.mjs <server|backup|import> <앱 폴더>");
     process.exit(2);
   }
   if (mode === "server") runServer(appHome);
-  else runBackup(appHome);
+  else if (mode === "backup") runBackup(appHome);
+  else runImportOnce(appHome);
 }
