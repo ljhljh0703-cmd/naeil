@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 import type { BlockedReason, ImportItem, ImportResult, Store, Task, Who } from "./db/store.js";
+import { buildHandoff } from "./handoff.js";
 import { dDay, dueSoon, kstDate, pickNow, waitingOnMe } from "./today.js";
 
 export type SourceConfig =
@@ -23,6 +24,7 @@ export type ImportConfig = {
   sources?: SourceConfig[];
   todaySheet?: string; // vault 안 「오늘 한 장」 파일 경로
   inbox?: string; // vault 안 받는 폴더 경로
+  handoffDir?: string; // vault 안 이어하기 한 장 폴더 (프로젝트마다 한 장, M1-4)
 };
 
 export type FetchLike = (
@@ -64,8 +66,10 @@ export function parseVaultLedger(text: string): { source: string; items: ImportI
       if (s) lines.push(`${label}: ${s}`);
     };
     add("상태", raw.상태);
-    add("선택지", raw.선택지);
-    add("추천", raw.추천);
+    if (!decision) {
+      add("선택지", raw.선택지);
+      add("추천", raw.추천);
+    }
     add("끝나면", raw.끝나면);
     add("근거", raw.근거);
     add("메모", raw.메모);
@@ -75,6 +79,10 @@ export function parseVaultLedger(text: string): { source: string; items: ImportI
       state,
       owner,
       decision,
+      // 결정은 결정함으로: 선택지, 추천, 근거 (M1-4)
+      options: decision && Array.isArray(raw.선택지) ? raw.선택지.map(String) : undefined,
+      recommended: decision ? (str(raw.추천) ?? null) : undefined,
+      basis: decision ? (str(raw.근거) ?? null) : undefined,
       dueAt: str(raw.마감) ? `${str(raw.마감)}T23:59:59+09:00` : null,
       body: lines.length ? lines.join("\n") : null,
       url: null,
@@ -141,7 +149,12 @@ export async function runImport(
   store: Store,
   config: ImportConfig,
   deps: { fetch: FetchLike; now: () => Date; githubToken?: string },
-): Promise<{ sources: SourceReport[]; inbox: InboxReport[]; sheet?: string }> {
+): Promise<{
+  sources: SourceReport[];
+  inbox: InboxReport[];
+  sheet?: string;
+  handoffs?: string[];
+}> {
   const inbox = config.inbox ? processInbox(store, config.inbox, deps.now) : [];
   const sources: SourceReport[] = [];
   for (const src of config.sources ?? []) {
@@ -174,7 +187,29 @@ export async function runImport(
     writeFileSync(config.todaySheet, todaySheet(store, deps.now()));
     sheet = config.todaySheet;
   }
-  return { sources, inbox, sheet };
+  // 이어하기 한 장: 열린 일이 있는 프로젝트마다. 스위치를 끄면 쓰지 않는다 (기록은 계속 받음)
+  const handoffs: string[] = [];
+  if (config.handoffDir && store.isOn("handoff")) {
+    mkdirSync(config.handoffDir, { recursive: true });
+    const open = new Set(
+      store
+        .listTasks({ status: undefined })
+        .filter((t) => t.status !== "done")
+        .map((t) => t.project_id),
+    );
+    for (const p of store.listProjects()) {
+      if (!open.has(p.id)) continue;
+      const h = buildHandoff(store, { projectId: p.id }, deps.now());
+      if (!h) continue;
+      const file = join(config.handoffDir, `${fileName(p.name)}.md`);
+      writeFileSync(
+        file,
+        `---\ngenerated_by: naeil\ngenerated_at: ${deps.now().toISOString()}\nproject_id: ${p.id}\n---\n${h.text}`,
+      );
+      handoffs.push(file);
+    }
+  }
+  return { sources, inbox, sheet, handoffs };
 }
 
 // ── vault 받는 폴더: 클라우드 세션의 요청 ──
@@ -182,6 +217,8 @@ export async function runImport(
 //   { "요청": "새 할 일", "제목": "...", "프로젝트": "...", "마감": "2026-11-20", "누가": "claude-cloud" }
 //   { "요청": "하는 중" | "끝" | "되살리기", "할일": "<할 일 번호>" }
 //   { "요청": "멈춤", "할일": "<번호>", "이유": "내 결정 기다림" | "바깥 답 기다림" | "기술 문제" }
+//   { "요청": "정할 것", "할일": "<번호>", "질문": "...", "선택지": ["가", "나"], "추천": "가", "근거": "..." }
+//   { "요청": "어디까지", "할일": "<번호>", "한 줄": "..." }
 // 휴지통에 넣기, 지우기, 프로젝트 바꾸기는 받지 않는다 (작가가 화면에서)
 export type InboxReport = { file: string; ok: boolean; message: string };
 
@@ -249,6 +286,17 @@ function applyRequest(store: Store, req: Record<string, unknown>, file: string):
   if (kind === "끝") store.setStatus(who, id, "done");
   else if (kind === "하는 중") store.setStatus(who, id, "doing");
   else if (kind === "되살리기") store.revive(who, id);
+  else if (kind === "정할 것") {
+    const question = str(req.질문);
+    if (!question) throw new Error("질문이 없음");
+    store.askDecision(who, id, {
+      question,
+      options: Array.isArray(req.선택지) ? req.선택지.map(String) : [],
+      recommended: str(req.추천) ?? null,
+      basis: str(req.근거) ?? null,
+    });
+  } else if (kind === "어디까지")
+    store.updateTask(who, id, { progressNote: str(req["한 줄"]) ?? null });
   else if (kind === "멈춤") {
     const reason = REASONS[str(req.이유) ?? "내 결정 기다림"];
     if (!reason) throw new Error(`이유는 ${Object.keys(REASONS).join(", ")} 중 하나`);
@@ -269,7 +317,13 @@ export function todaySheet(store: Store, now: Date): string {
     const bits = [projects.get(t.project_id) ?? "", t.due_at ? dLabel(dDay(t.due_at, now)) : ""]
       .filter(Boolean)
       .join(", ");
-    return `- ${t.title}${bits ? ` (${bits})` : ""} \`${t.id}\``;
+    const note = t.progress_note ? `\n  - 어디까지 했나: ${t.progress_note}` : "";
+    const d = t.blocked_reason === "my_decision" ? store.getDecision(t.id) : undefined;
+    const ask =
+      d && !d.answered_at
+        ? `\n  - 정할 것: ${d.question}${(JSON.parse(d.options) as string[]).length ? ` / 선택지: ${(JSON.parse(d.options) as string[]).join(", ")}` : ""}${d.recommended ? ` (추천 ${d.recommended})` : ""}`
+        : "";
+    return `- ${t.title}${bits ? ` (${bits})` : ""} \`${t.id}\`${note}${ask}`;
   };
   const doing = tasks.filter((t) => t.status === "doing" && !t.blocked_reason);
   const ai = tasks.filter((t) => t.owner === "ai" && t.status !== "done");
@@ -301,6 +355,8 @@ export function todaySheet(store: Store, now: Date): string {
     '{ "요청": "하는 중", "할일": "<위 목록의 번호>", "누가": "claude-cloud" }',
     '{ "요청": "끝", "할일": "<번호>", "누가": "claude-cloud" }',
     '{ "요청": "멈춤", "할일": "<번호>", "이유": "내 결정 기다림", "누가": "claude-cloud" }',
+    '{ "요청": "정할 것", "할일": "<번호>", "질문": "...", "선택지": ["가", "나"], "추천": "가", "누가": "claude-cloud" }',
+    '{ "요청": "어디까지", "할일": "<번호>", "한 줄": "...", "누가": "claude-cloud" }',
     "```",
     "",
   ].join("\n");
@@ -313,3 +369,9 @@ const slug = (s: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "") || "ledger";
+// 파일 이름에 못 쓰는 글자만 바꾼다 (한글 이름은 그대로)
+const fileName = (s: string) =>
+  s
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .trim()
+    .slice(0, 80) || "project";

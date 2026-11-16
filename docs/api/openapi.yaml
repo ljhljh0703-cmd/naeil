@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: naeil API
-  version: 0.0.8
+  version: 0.0.9
   summary: 내 일은 naeil에서
   description: |
     내일은내일(naeil) 할 일 API 명세서 v1 (작가 결정 4곳 반영 2026-10-25, 코드는 1-2단계).
@@ -263,6 +263,10 @@ paths:
               properties:
                 name: { type: string, minLength: 1, maxLength: 100 }
                 dueAt: { type: [string, "null"], format: date-time }
+                doneWhen:
+                  type: [string, "null"]
+                  maxLength: 500
+                  description: 이 마일스톤이 끝났다고 볼 기준 (이어하기 한 장의 목표)
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "200":
@@ -574,6 +578,209 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Today" }
 
+  /v1/decisions:
+    get:
+      tags: [decisions]
+      operationId: listDecisions
+      summary: 결정함 (열린 질문 먼저, 그다음 최근 답)
+      parameters:
+        - name: open
+          in: query
+          description: 참이면 답 없는 질문만
+          schema: { type: boolean }
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "200":
+          description: 질문 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Decision" } }
+
+  /v1/tasks/{taskId}/decision:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    get:
+      tags: [decisions]
+      operationId: getDecision
+      summary: 이 할 일의 질문과 답 (기다리던 세션이 답을 읽는 곳)
+      responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "200":
+          description: 가장 최근 질문 (열린 것이 있으면 그것)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Decision" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [decisions]
+      operationId: askDecision
+      summary: 작가에게 정할 것을 묻는다 (할 일은 「내 결정 기다림」으로 멈춤. 열린 질문이 있으면 고침)
+      parameters:
+        - $ref: "#/components/parameters/Session"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              additionalProperties: false
+              properties:
+                question: { type: string, minLength: 1, maxLength: 500, pattern: "\\S" }
+                options:
+                  type: array
+                  maxItems: 6
+                  items: { type: string, minLength: 1, maxLength: 200 }
+                recommended: { type: [string, "null"], maxLength: 200 }
+                basis: { type: [string, "null"], maxLength: 2000 }
+      responses:
+        "500": { $ref: "#/components/responses/ServerError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "200":
+          description: 열린 질문
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Decision" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: 규칙 위반 (끝난 일)
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/tasks/{taskId}/decision/answer:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    post:
+      tags: [decisions]
+      operationId: answerDecision
+      summary: 정한다 (고른 답을 남기고 멈춤을 푼다)
+      parameters:
+        - $ref: "#/components/parameters/Session"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answer]
+              additionalProperties: false
+              properties:
+                answer: { type: string, minLength: 1, maxLength: 500, pattern: "\\S" }
+                note: { type: string, maxLength: 2000 }
+      responses:
+        "500": { $ref: "#/components/responses/ServerError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "200":
+          description: 답한 질문
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Decision" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: 규칙 위반 (답할 질문이 없음)
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/handoff:
+    get:
+      tags: [handoff]
+      operationId: getHandoff
+      summary: 이어하기 한 장 (목표, 남은 일, 바뀐 것, 근거, 막힌 것). 셋 중 하나만
+      parameters:
+        - name: projectId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: milestoneId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: taskId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "200":
+          description: 한 장 (마크다운)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [title, text]
+                properties:
+                  title: { type: string }
+                  text: { type: string }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: 이어하기 스위치가 꺼져 있음
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /v1/settings:
+    get:
+      tags: [settings]
+      operationId: listSettings
+      summary: 기능 스위치 (처음에는 모두 켜짐)
+      responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "200":
+          description: 스위치 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Setting" } }
+
+  /v1/settings/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string, maxLength: 32 }
+    put:
+      tags: [settings]
+      operationId: setSetting
+      summary: 스위치 켜고 끄기. 화면만 숨기고 경계 규칙은 늘 적용. AI 는 이유 한 줄 필수
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              additionalProperties: false
+              properties:
+                enabled: { type: boolean }
+                reason: { type: string, maxLength: 200 }
+      responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "200":
+          description: 바뀐 스위치
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Setting" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: 규칙 위반 (AI 가 이유 없이 바꿈)
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
 components:
   securitySchemes:
     naeilKey:
@@ -741,6 +948,7 @@ components:
             projectId: { type: string, format: uuid }
             name: { type: string }
             dueAt: { type: [string, "null"], format: date-time }
+            doneWhen: { type: [string, "null"], description: 끝났다고 볼 기준 }
             etag:
               type: string
               description: 이 마일스톤의 판 표시. 목록을 다시 읽어 최신 값을 얻고 PATCH의 If-Match에 그대로 보낸다.
@@ -770,6 +978,7 @@ components:
             body: { type: [string, "null"] }
             owner: { $ref: "#/components/schemas/Owner" }
             sourceUrl: { type: [string, "null"], description: 가져온 일의 원문 주소 }
+            progressNote: { type: [string, "null"], description: 어디까지 했나 한 줄 }
     TaskCreate:
       type: object
       required: [projectId, title]
@@ -792,6 +1001,7 @@ components:
         title: { type: string, minLength: 1, maxLength: 200, pattern: "\\S", description: 빈칸만 있는 이름은 받지 않음 }
         status: { $ref: "#/components/schemas/Status" }
         owner: { $ref: "#/components/schemas/Owner" }
+        progressNote: { type: [string, "null"], maxLength: 500, description: 어디까지 했나 한 줄. null 이면 지움 }
         dueAt: { type: [string, "null"], format: date-time }
         milestoneId: { type: [string, "null"], format: uuid }
     TaskPage:
@@ -819,6 +1029,33 @@ components:
         entityId: { type: string }
         action: { type: string, description: "create, status, block, unblock, trash, revive 등" }
         details: { type: [object, "null"] }
+    Decision:
+      type: object
+      required: [id, taskId, question, options, askedBy, askedAt]
+      properties:
+        id: { type: string, format: uuid }
+        taskId: { type: string, format: uuid }
+        question: { type: string }
+        options: { type: array, items: { type: string } }
+        recommended: { type: [string, "null"] }
+        basis: { type: [string, "null"], description: 근거 (문서 경로, 주소 등) }
+        askedBy: { type: string }
+        askedAt: { type: string, format: date-time }
+        answer: { type: [string, "null"], description: 고른 답. 아직이면 null }
+        note: { type: [string, "null"] }
+        answeredBy: { type: [string, "null"] }
+        answeredAt: { type: [string, "null"], format: date-time }
+    Setting:
+      type: object
+      required: [name, label, enabled]
+      properties:
+        name: { type: string, enum: [handoff] }
+        label: { type: string }
+        enabled: { type: boolean }
+        reason: { type: [string, "null"] }
+        changedBy: { type: [string, "null"] }
+        changedKind: { type: [string, "null"] }
+        changedAt: { type: [string, "null"], format: date-time }
     Owner:
       type: string
       enum: [author, ai]
@@ -841,6 +1078,23 @@ components:
         skipped: { type: array, items: { type: string } }
         waitingOnMe: { type: array, items: { $ref: "#/components/schemas/Task" } }
         dueSoon: { type: array, items: { $ref: "#/components/schemas/Task" } }
+        decisions:
+          description: 열린 질문 (결정함)
+          type: array
+          items: { $ref: "#/components/schemas/Decision" }
+        notices:
+          description: AI 가 끈 스위치. 다시 켤 때까지 오늘 화면 맨 위에
+          type: array
+          items:
+            type: object
+            required: [kind, name, label]
+            properties:
+              kind: { type: string, enum: [switch-off] }
+              name: { type: string }
+              label: { type: string }
+              changedBy: { type: [string, "null"] }
+              reason: { type: [string, "null"] }
+              changedAt: { type: [string, "null"], format: date-time }
     Problem:
       type: object
       description: 오류 한 가지 모양 (RFC 9457)

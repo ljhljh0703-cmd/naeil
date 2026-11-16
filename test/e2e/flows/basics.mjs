@@ -57,15 +57,15 @@ export async function run({ page, ok, api, until, base, out }) {
   // 3. 이름 바꾸기
   await p.getByRole("link", { name: "첫 작업" }).first().click();
   await p.locator(".detail #detail-title").waitFor();
-  const name = p.locator(".detail .text-control input");
+  const name = p.locator(".detail .text-control").first().locator("input");
   ok((await name.inputValue()) === "첫 작업", "상세 이름 칸에 지금 이름");
   await name.fill("   ");
   ok(
-    await p.locator(".detail .text-control button").isDisabled(),
+    await p.locator(".detail .text-control").first().locator("button").isDisabled(),
     "빈칸만 있으면 저장 버튼이 꺼짐",
   );
   await name.fill("이름 바꾼 작업");
-  await p.locator(".detail .text-control button").click();
+  await p.locator(".detail .text-control").first().locator("button").click();
   ok(
     await until(() =>
       p.evaluate(() => document.querySelector("#detail-title")?.textContent === "이름 바꾼 작업"),

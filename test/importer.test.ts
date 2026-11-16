@@ -79,8 +79,8 @@ describe("vault 할 일 원장 읽기", () => {
       ["vm-3", "open", "author", true],
       ["vm-4", "open", "author", false],
     ]);
-    expect(items[2]?.body).toContain("선택지: 계속, 그만");
-    expect(items[2]?.body).toContain("추천: 계속");
+    // 결정은 결정함으로 (M1-4): 선택지, 추천
+    expect(items[2]).toMatchObject({ options: ["계속", "그만"], recommended: "계속" });
     expect(items[3]?.dueAt).toBe("2026-11-18T23:59:59+09:00");
     expect(() => parseVaultLedger("{}")).toThrow("할일");
   });
@@ -98,6 +98,12 @@ describe("가져오기", () => {
     expect(bySource("vm-1")).toBeUndefined(); // 이미 끝난 것은 넣지 않음
     expect(bySource("vm-2")).toMatchObject({ owner: "ai", external_text: 1 });
     expect(bySource("vm-3")).toMatchObject({ owner: "author", blocked_reason: "my_decision" });
+    expect(store.getDecision(bySource("vm-3")?.id as string)).toMatchObject({
+      question: "3주 넘게 멈춘 4건 계속할지",
+      options: JSON.stringify(["계속", "그만"]),
+      recommended: "계속",
+      answered_at: null,
+    });
     expect(bySource("vm-4")?.due_at).toBe("2026-11-18T14:59:59.000Z");
     expect(store.listProjects().map((p) => p.name)).toEqual(["vault 유지보수"]);
     // 지금 할 것: AI 몫(vm-2)과 정할 일(vm-3)을 빼고 vm-4
@@ -313,6 +319,55 @@ describe("vault 받는 폴더 (클라우드 세션의 요청)", () => {
     expect(JSON.parse(readFileSync(join(inbox, "처리함", bad), "utf8"))).toMatchObject({
       성공: false,
     });
+  });
+
+  it("정할 것과 어디까지 요청 (M1-4)", () => {
+    const inbox = join(dir, "inbox2");
+    mkdirSync(inbox);
+    const p = store.createProject("author", "내일은내일");
+    const t = store.createTask("author", { projectId: p, title: "표어" });
+    writeFileSync(
+      join(inbox, "a.json"),
+      JSON.stringify({
+        요청: "정할 것",
+        할일: t,
+        질문: "둘째 줄?",
+        선택지: ["넣기", "빼기"],
+        추천: "넣기",
+        누가: "claude-cloud",
+      }),
+    );
+    writeFileSync(
+      join(inbox, "b.json"),
+      JSON.stringify({ 요청: "어디까지", 할일: t, "한 줄": "초안 둘 씀" }),
+    );
+    const out = processInbox(store, inbox, now);
+    expect(out.every((r) => r.ok)).toBe(true);
+    expect(store.getDecision(t)).toMatchObject({
+      question: "둘째 줄?",
+      recommended: "넣기",
+      asked_by: "claude-cloud",
+    });
+    expect(store.getTask(t)).toMatchObject({
+      blocked_reason: "my_decision",
+      progress_note: "초안 둘 씀",
+    });
+    const sheet = todaySheet(store, now());
+    expect(sheet).toContain("  - 어디까지 했나: 초안 둘 씀");
+    expect(sheet).toContain("  - 정할 것: 둘째 줄? / 선택지: 넣기, 빼기 (추천 넣기)");
+  });
+
+  it("이어하기 한 장을 프로젝트마다 vault 에 씀, 스위치를 끄면 안 씀", async () => {
+    const p = store.createProject("author", "내일은/내일");
+    store.createTask("author", { projectId: p, title: "남은 일" });
+    const q = store.createProject("author", "끝난 프로젝트");
+    store.setStatus("author", store.createTask("author", { projectId: q, title: "끝" }), "done");
+    const hd = join(dir, "handoff");
+    const out = await runImport(store, { handoffDir: hd }, deps);
+    expect(out.handoffs?.map((f) => f.replace(hd, ""))).toEqual([`${join("/", "내일은-내일")}.md`]);
+    expect(readFileSync(join(hd, "내일은-내일.md"), "utf8")).toContain("# 이어하기: 내일은/내일");
+    store.setSetting("author", "handoff", false);
+    expect((await runImport(store, { handoffDir: hd }, deps)).handoffs).toEqual([]);
   });
 
   it("받는 폴더가 없으면 아무것도 안 함", () => {

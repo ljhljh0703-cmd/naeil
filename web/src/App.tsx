@@ -4,9 +4,11 @@ import {
   type ApiTask,
   api,
   type Change,
+  type Decision,
   getKey,
   type Milestone,
   type Project,
+  type Setting,
   setKey,
   type Today,
 } from "./api.js";
@@ -101,6 +103,15 @@ export function App() {
   const [keyError, setKeyError] = useState<string>();
   const [projects, setProjects] = useState<Project[]>([]);
   const [trashedProjects, setTrashedProjects] = useState<Project[]>([]);
+  const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [settings, setSettings] = useState<Setting[]>([]);
+  // 잠깐 보였다 사라지는 알림 (예 「복사했습니다」)
+  const [info, setInfo] = useState<string>();
+  useEffect(() => {
+    if (!info) return;
+    const t = setTimeout(() => setInfo(undefined), 4000);
+    return () => clearTimeout(t);
+  }, [info]);
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [changes, setChanges] = useState<Change[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
@@ -143,15 +154,19 @@ export function App() {
 
   const reload = useCallback(async () => {
     try {
-      const [p, t, c, gone, td] = await Promise.all([
+      const [p, t, c, gone, td, ds, st] = await Promise.all([
         api.projects(),
         api.allTasks(),
         api.changes(),
         api.trashedProjects(),
         api.today(),
+        api.decisions(),
+        api.settings(),
       ]);
       const m = await api.allMilestones(p);
       setToday(td);
+      setDecisions(ds);
+      setSettings(st);
       setProjects(p);
       setTrashedProjects(gone);
       setMilestones(m);
@@ -251,11 +266,26 @@ export function App() {
     }
   };
 
+  // 이어하기 한 장을 복사. 암호화 주소가 아니면(폰 평문 주소) 클립보드 기능이 없어 예전 방식으로
+  const copyHandoff = (scope: { taskId?: string; milestoneId?: string }) =>
+    void run(async () => {
+      const h = await api.handoff(scope);
+      await copyText(h.text);
+      setInfo(`「${h.title}」 이어하기 한 장을 복사했습니다. 새 세션에 붙여 넣으세요.`);
+    });
+
   const onAction: ActFn = (ref, a, value) => {
+    if (a.id === "open-decision") {
+      openItem(ref, [ref], document.activeElement as HTMLElement);
+      return;
+    }
     if (ref.type === "milestone") {
       const m = milestones.find((x) => x.id === ref.id);
       if (!m) return;
-      if (a.id === "milestone-due") {
+      if (a.id === "handoff") copyHandoff({ milestoneId: m.id });
+      else if (a.id === "milestone-done-when") {
+        void run(() => api.updateMilestone(m, { doneWhen: value?.trim() ? value : null }));
+      } else if (a.id === "milestone-due") {
         void run(() => api.updateMilestone(m, { dueAt: value ? dueFromKstDate(value) : null }));
       } else if (a.id === "milestone-trash") {
         void run(async () => {
@@ -275,17 +305,30 @@ export function App() {
       reopen: () => api.revive(id),
       decided: () => api.unblock(id),
       "need-decision": () => api.block(id, "my_decision"),
+      "answer-text": () => api.answer(id, value ?? ""),
+      progress: () => api.setProgress(id, value?.trim() ? value : null),
       trash: async () => {
         await api.trash(id);
         if (open.ref && refKey(open.ref) === refKey(ref)) closeItem();
       },
     };
+    if (a.id === "handoff") {
+      copyHandoff({ taskId: id });
+      return;
+    }
+    if (a.id.startsWith("answer:")) {
+      const d = decisions.find((x) => x.taskId === id && !x.answeredAt);
+      const choice = d?.options[Number(a.id.slice(7))];
+      if (choice) void run(() => api.answer(id, choice));
+      return;
+    }
     const fn = byId[a.id];
     if (fn) void run(fn);
   };
 
   const now = new Date();
-  const ctx: Ctx = { tasks, changes, projects, milestones, now };
+  const handoffOn = settings.find((x) => x.name === "handoff")?.enabled ?? true;
+  const ctx: Ctx = { tasks, changes, projects, milestones, now, decisions, handoffOn };
   // 서버가 고른 것을 화면이 가진 같은 할 일로 찾는다 (판 표시 등이 한 곳에서 오게)
   const byIds = (list: { id: string }[] | undefined) =>
     (list ?? []).map((x) => tasks.find((t) => t.id === x.id)).filter((t): t is ApiTask => !!t);
@@ -298,10 +341,12 @@ export function App() {
       })
       .filter((c): c is CardModel => !!c);
 
-  const decideCards = cards(byIds(todayData?.waitingOnMe), () => ({
-    id: "decided",
-    label: "정했음",
-  }));
+  // 질문이 있으면 「고르기」(상세에서 선택지), 없으면 「정했음」
+  const decideCards = cards(byIds(todayData?.waitingOnMe), (t) =>
+    decisions.some((d) => d.taskId === t.id && !d.answeredAt)
+      ? { id: "open-decision", label: "고르기" }
+      : { id: "decided", label: "정했음" },
+  );
   const soonCards = cards(byIds(todayData?.dueSoon)).map((c) => ({
     ...c,
     status: undefined,
@@ -503,6 +548,26 @@ export function App() {
     <div className={open.ref ? "layout with-panel" : "layout"}>
       <main className="shell">
         {header}
+        {(todayData?.notices ?? []).map((n) => (
+          <div key={n.name} className="notice" role="status">
+            <span>
+              <strong>{n.changedBy}</strong> 가 <strong>{n.label}</strong> 스위치를 껐습니다
+              {n.reason ? `: ${n.reason}` : ""}
+            </span>
+            <button
+              type="button"
+              className="small"
+              onClick={() => void run(() => api.setSetting(n.name, true))}
+            >
+              다시 켜기
+            </button>
+          </div>
+        ))}
+        {info && (
+          <p className="info" role="status">
+            {info}
+          </p>
+        )}
         {error && (
           <div className="error" role="alert">
             <span>{error}</span>
@@ -630,6 +695,17 @@ export function App() {
         )}
 
         <footer className="foot">
+          {settings.map((st) => (
+            <button
+              key={st.name}
+              type="button"
+              className="ghost small"
+              aria-pressed={st.enabled}
+              onClick={() => void run(() => api.setSetting(st.name, !st.enabled))}
+            >
+              {st.label} {st.enabled ? "켜짐" : "꺼짐"}
+            </button>
+          ))}
           <button
             type="button"
             className="ghost small"
@@ -738,4 +814,22 @@ function AddTask({
       </form>
     </section>
   );
+}
+
+// 클립보드에 글 넣기. 암호화 주소(https, localhost)가 아니면 navigator.clipboard 가 없어 예전 방식으로
+async function copyText(text: string) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.select();
+  const ok = document.execCommand("copy");
+  area.remove();
+  if (!ok) throw new Error("복사하지 못했습니다. 브라우저가 막았을 수 있습니다.");
 }

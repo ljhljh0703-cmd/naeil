@@ -47,4 +47,5 @@ for (const s of out.sources) {
   }
 }
 if (out.sheet) console.log(`오늘 한 장: ${out.sheet}`);
+if (out.handoffs?.length) console.log(`이어하기 한 장 ${out.handoffs.length}개`);
 process.exit(failed ? 1 : 0);
