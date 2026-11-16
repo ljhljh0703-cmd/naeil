@@ -680,7 +680,9 @@ export function App() {
                 </div>
 
                 {(todayData?.laterCount ?? 0) > 0 && (
-                  <p className="later-note">다음 단계 할 일 {todayData?.laterCount}개는 마일스톤 화면에 있습니다</p>
+                  <p className="later-note">
+                    다음 단계 할 일 {todayData?.laterCount}개는 마일스톤 화면에 있습니다
+                  </p>
                 )}
 
                 <AddTask projects={projects} onDone={reload} onError={setError} />

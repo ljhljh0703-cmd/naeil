@@ -434,7 +434,9 @@ export class Store {
          ORDER BY project_id, due_at IS NULL, due_at, created_at, rowid`,
       )
       .all(this.workspace) as { id: string; project_id: string }[];
-    const open = new Set(tasks.filter((t) => t.status !== "done" && t.milestone_id).map((t) => t.milestone_id));
+    const open = new Set(
+      tasks.filter((t) => t.status !== "done" && t.milestone_id).map((t) => t.milestone_id),
+    );
     const later = new Set<string>();
     const seenCurrent = new Set<string>();
     for (const m of ms) {
@@ -442,7 +444,10 @@ export class Store {
       else if (open.has(m.id)) seenCurrent.add(m.project_id);
     }
     const hidden = (t: Task) =>
-      t.status !== "done" && t.id !== pinnedId && t.milestone_id !== null && later.has(t.milestone_id);
+      t.status !== "done" &&
+      t.id !== pinnedId &&
+      t.milestone_id !== null &&
+      later.has(t.milestone_id);
     return { tasks: tasks.filter((t) => !hidden(t)), later: tasks.filter(hidden).length };
   }
 
