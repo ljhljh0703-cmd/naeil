@@ -1,7 +1,7 @@
 // 가져오기와 vault 다리 (M1-3, 2026-11-13 작가 결정 「vault 다리」 「AI 몫으로」)
 //   1) 출처에서 일을 가져와 넣거나 고친다: vault 할 일 원장(JSON), 깃허브 이슈
-//   2) vault 받는 폴더의 요청 파일을 처리한다: 클라우드 세션이 작업판에 닿는 길
-//   3) vault 에 「오늘 한 장」을 쓴다: 클라우드 세션이 작업판을 읽는 길
+//   2) vault 요청함의 요청 파일을 처리한다: 클라우드 세션이 작업판에 닿는 길
+//   3) vault 에 「오늘 요약」을 쓴다: 클라우드 세션이 작업판을 읽는 길
 // 저장은 늘 Store 를 거친다 (표를 직접 고치지 않음). 출처 쪽 실패는 그 출처만 실패로 남기고 다음 출처로 넘어간다.
 import {
   existsSync,
@@ -22,9 +22,9 @@ export type SourceConfig =
 
 export type ImportConfig = {
   sources?: SourceConfig[];
-  todaySheet?: string; // vault 안 「오늘 한 장」 파일 경로
-  inbox?: string; // vault 안 받는 폴더 경로
-  handoffDir?: string; // vault 안 이어하기 한 장 폴더 (프로젝트마다 한 장, M1-4)
+  todaySheet?: string; // vault 안 「오늘 요약」 파일 경로
+  inbox?: string; // vault 안 요청함 경로
+  handoffDir?: string; // vault 안 인수인계 문서 폴더 (프로젝트마다 한 장, M1-4)
 };
 
 export type FetchLike = (
@@ -39,7 +39,7 @@ export type SourceReport = {
   error?: string;
 };
 
-// 가져오기를 한 사람. 출입증 없이 명령줄에서 도는 일이라 종류는 비운다 (사람도 AI 도 아님)
+// 가져오기를 한 사람. API 키 없이 명령줄에서 도는 일이라 종류는 비운다 (사람도 AI 도 아님)
 export const IMPORTER: Who = { actor: "import", session: null, kind: null };
 
 // ── vault 할 일 원장 ──
@@ -94,9 +94,9 @@ export function parseVaultLedger(text: string): { source: string; items: ImportI
   return { source: (name.startsWith("vault") ? name : `vault-${name}`).slice(0, 32), items };
 }
 
-// ── 깃허브 이슈 (AI 몫) ──
+// ── 깃허브 이슈 (AI 담당) ──
 // 열린 이슈는 넣고, 최근 30일 안에 닫힌 이슈는 이미 가져온 것만 닫는다 (지난 이슈를 쌓지 않음).
-// 이슈 본문은 가져오지 않는다 (바깥 글. 제목과 원문 주소만)
+// 이슈 본문은 가져오지 않는다 (외부 입력. 제목과 원문 주소만)
 export async function fetchGithubIssues(
   repo: string,
   fetchImpl: FetchLike,
@@ -172,7 +172,7 @@ export async function runImport(
       } else {
         items = await fetchGithubIssues(src.repo, deps.fetch, deps.now(), deps.githubToken);
       }
-      // 이미 끝난 일은 새로 넣지 않는다 (지난 일로 작업판을 채우지 않음). 이미 있는 것만 끝냄으로 고친다
+      // 이미 끝난 일은 새로 넣지 않는다 (지난 일로 작업판을 채우지 않음). 이미 있는 것만 완료으로 고친다
       const known = items.filter((i) => i.state === "open" || store.findBySource(source, i.ref));
       const projectId = store.ensureProject(IMPORTER, project);
       sources.push({
@@ -189,7 +189,7 @@ export async function runImport(
     writeFileSync(config.todaySheet, todaySheet(store, deps.now()));
     sheet = config.todaySheet;
   }
-  // 이어하기 한 장: 열린 일이 있는 프로젝트마다. 스위치를 끄면 쓰지 않는다 (기록은 계속 받음)
+  // 인수인계 문서: 열린 일이 있는 프로젝트마다. 스위치를 끄면 쓰지 않는다 (기록은 계속 받음)
   const handoffs: string[] = [];
   if (config.handoffDir && store.isOn("handoff")) {
     mkdirSync(config.handoffDir, { recursive: true });
@@ -214,20 +214,30 @@ export async function runImport(
   return { sources, inbox, sheet, handoffs };
 }
 
-// ── vault 받는 폴더: 클라우드 세션의 요청 ──
+// ── vault 요청함: 클라우드 세션의 요청 ──
 // 파일 하나 = 요청 하나 (JSON). 처리한 파일은 「처리함」 폴더로 옮기고 결과를 옆에 적는다.
 //   { "요청": "새 할 일", "제목": "...", "프로젝트": "...", "마감": "2026-11-20", "누가": "claude-cloud" }
-//   { "요청": "하는 중" | "끝" | "되살리기", "할일": "<할 일 번호>" }
-//   { "요청": "멈춤", "할일": "<번호>", "이유": "내 결정 기다림" | "바깥 답 기다림" | "기술 문제" }
+//   { "요청": "진행 중" | "완료" | "복원", "할일": "<할 일 번호>" }  (예전 이름 하는 중, 끝, 되살리기, 멈춤도 받음)
+//   { "요청": "멈춤", "할일": "<번호>", "이유": "내 결정 대기" | "외부 응답 대기" | "기술 문제" }
 //   { "요청": "정할 것", "할일": "<번호>", "질문": "...", "선택지": ["가", "나"], "추천": "가", "근거": "..." }
 //   { "요청": "어디까지", "할일": "<번호>", "한 줄": "..." }
 // 휴지통에 넣기, 지우기, 프로젝트 바꾸기는 받지 않는다 (작가가 화면에서)
 export type InboxReport = { file: string; ok: boolean; message: string };
 
 const REASONS: Record<string, BlockedReason> = {
+  "내 결정 대기": "my_decision",
+  "외부 응답 대기": "external",
+  "기술 문제": "tech",
+  // 예전 이름도 받음 (2026-11-16 용어 정리 전)
   "내 결정 기다림": "my_decision",
   "바깥 답 기다림": "external",
-  "기술 문제": "tech",
+};
+// 요청 이름: 지금 이름과 예전 이름 (2026-11-16 용어 정리, docs/glossary.md)
+const KIND_ALIAS: Record<string, string> = {
+  끝: "완료",
+  "하는 중": "진행 중",
+  되살리기: "복원",
+  멈춤: "보류",
 };
 
 export function processInbox(store: Store, dir: string, now: () => Date): InboxReport[] {
@@ -266,7 +276,8 @@ function applyRequest(store: Store, req: Record<string, unknown>, file: string):
     .replace(/[^a-z0-9-]/g, "-")
     .slice(0, 32);
   const who: Who = { actor: actor || "inbox", session: null, kind: "ai" };
-  const kind = str(req.요청);
+  const asked = str(req.요청);
+  const kind = asked ? (KIND_ALIAS[asked] ?? asked) : asked;
   if (kind === "새 할 일") {
     const title = str(req.제목);
     if (!title) throw new Error("제목이 없음");
@@ -283,11 +294,11 @@ function applyRequest(store: Store, req: Record<string, unknown>, file: string):
   }
   const id = str(req.할일);
   if (!id) throw new Error("할일 번호가 없음");
-  const task = store.getTask(id, { includeTrashed: kind === "되살리기" });
+  const task = store.getTask(id, { includeTrashed: kind === "복원" });
   if (!task) throw new Error(`할 일이 없음: ${id}`);
-  if (kind === "끝") store.setStatus(who, id, "done");
-  else if (kind === "하는 중") store.setStatus(who, id, "doing");
-  else if (kind === "되살리기") store.revive(who, id);
+  if (kind === "완료") store.setStatus(who, id, "done");
+  else if (kind === "진행 중") store.setStatus(who, id, "doing");
+  else if (kind === "복원") store.revive(who, id);
   else if (kind === "정할 것") {
     const question = str(req.질문);
     if (!question) throw new Error("질문이 없음");
@@ -299,15 +310,15 @@ function applyRequest(store: Store, req: Record<string, unknown>, file: string):
     });
   } else if (kind === "어디까지")
     store.updateTask(who, id, { progressNote: str(req["한 줄"]) ?? null });
-  else if (kind === "멈춤") {
-    const reason = REASONS[str(req.이유) ?? "내 결정 기다림"];
+  else if (kind === "보류") {
+    const reason = REASONS[str(req.이유) ?? "내 결정 대기"];
     if (!reason) throw new Error(`이유는 ${Object.keys(REASONS).join(", ")} 중 하나`);
     store.block(who, id, reason);
   } else throw new Error(`모르는 요청: ${kind}`);
   return `${kind}: ${task.title}`;
 }
 
-// ── 오늘 한 장 (vault 에 씀. 클라우드 세션이 읽음) ──
+// ── 오늘 요약 (vault 에 씀. 클라우드 세션이 읽음) ──
 
 export function todaySheet(store: Store, now: Date): string {
   const day = kstDate(now);
@@ -338,26 +349,26 @@ export function todaySheet(store: Store, now: Date): string {
     "generated_by: naeil",
     `generated_at: ${now.toISOString()}`,
     "---",
-    `# 내일은내일 오늘 한 장 (${day})`,
+    `# 내일은내일 오늘 요약 (${day})`,
     "",
     "이 파일은 작업판이 한 시간마다 새로 씁니다. 고쳐도 다음에 덮어씁니다.",
-    "작업판에 무언가 바꾸려면 받는 폴더에 요청 파일을 두세요 (모양은 맨 아래).",
+    "작업판에 무언가 바꾸려면 요청함에 요청 파일을 두세요 (모양은 맨 아래).",
     "",
     section("지금 할 것", pick ? [pick] : [], "- 없음"),
     section("내가 정할 것", waiting, "- 없음"),
     section("마감 가까운 것", soon, "- 없음"),
-    section("하는 중", doing, "- 없음"),
-    `## AI 몫 열린 것 ${ai.length}개`,
+    section("진행 중", doing, "- 없음"),
+    `## AI 담당 열린 것 ${ai.length}개`,
     ...ai.slice(0, 20).map(line),
     ai.length > 20 ? `- 그 밖 ${ai.length - 20}개` : "",
     later ? `\n다음 단계(뒤 마일스톤) 할 일 ${later}개는 숨김. 마일스톤 화면에는 다 보임` : "",
     "",
-    "## 요청 파일 모양 (받는 폴더에 .json 하나씩)",
+    "## 요청 파일 모양 (요청함에 .json 하나씩)",
     "```json",
     '{ "요청": "새 할 일", "제목": "...", "프로젝트": "...", "마감": "2026-11-20", "누가": "claude-cloud" }',
-    '{ "요청": "하는 중", "할일": "<위 목록의 번호>", "누가": "claude-cloud" }',
-    '{ "요청": "끝", "할일": "<번호>", "누가": "claude-cloud" }',
-    '{ "요청": "멈춤", "할일": "<번호>", "이유": "내 결정 기다림", "누가": "claude-cloud" }',
+    '{ "요청": "진행 중", "할일": "<위 목록의 번호>", "누가": "claude-cloud" }',
+    '{ "요청": "완료", "할일": "<번호>", "누가": "claude-cloud" }',
+    '{ "요청": "보류", "할일": "<번호>", "이유": "내 결정 대기", "누가": "claude-cloud" }',
     '{ "요청": "정할 것", "할일": "<번호>", "질문": "...", "선택지": ["가", "나"], "추천": "가", "누가": "claude-cloud" }',
     '{ "요청": "어디까지", "할일": "<번호>", "한 줄": "...", "누가": "claude-cloud" }',
     "```",

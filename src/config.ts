@@ -59,7 +59,7 @@ export function loadConfig(
   const host = env.NAEIL_HOST?.trim() || "127.0.0.1";
   if (!isLoopback(host)) {
     notes.push(
-      `서버가 이 컴퓨터 밖(${host})으로 열림. 출입증이 평문으로 오가니 폰 접속은 NAEIL_HOST 를 비우고 tailscale serve 로 (운영 안내서 「폰에서 열기」)`,
+      `서버가 이 컴퓨터 밖(${host})으로 열림. API 키가 평문으로 오가니 폰 접속은 NAEIL_HOST 를 비우고 tailscale serve 로 (운영 안내서 「폰에서 열기」)`,
     );
   }
   return { host, port, dbPath, notes };

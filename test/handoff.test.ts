@@ -55,7 +55,7 @@ const getDecision = (t: string, key = claude) =>
   call("GET", "/v1/tasks/{taskId}/decision", { url: `/v1/tasks/${t}/decision`, key });
 
 describe("결정함", () => {
-  it("AI 가 묻고 → 할 일은 내 결정 기다림, 오늘의 정할 것에 질문 → 작가가 고르면 멈춤 풀리고 세션이 답을 읽음", async () => {
+  it("AI 가 묻고 → 할 일은 내 결정 대기, 오늘의 정할 것에 질문 → 작가가 고르면 멈춤 풀리고 세션이 답을 읽음", async () => {
     const { t } = await setup();
     const asked = await ask(t, {
       question: "표어 둘째 줄을 넣을까",
@@ -125,8 +125,8 @@ describe("결정함", () => {
   });
 });
 
-describe("이어하기 한 장", () => {
-  it("목표(끝나면), 남은 일과 어디까지, 바뀐 것, 근거, 막힌 것. 바깥 글 본문은 빼고 주의 한 줄", async () => {
+describe("인수인계 문서", () => {
+  it("목표(끝나면), 남은 일과 어디까지, 바뀐 것, 근거, 막힌 것. 외부 입력 본문은 빼고 주의 한 줄", async () => {
     const { p, t } = await setup();
     const m = (
       await call("POST", "/v1/projects/{projectId}/milestones", {
@@ -165,13 +165,13 @@ describe("이어하기 한 장", () => {
     const text = h.json().text as string;
     expect(h.json().title).toBe("포폴 공개");
     expect(text).toContain("## 목표\n- 포폴 공개: 끝나면 = README 첫 화면과 시연판 링크");
-    expect(text).toContain("- README 첫 화면 (하는 중)");
+    expect(text).toContain("- README 첫 화면 (진행 중)");
     expect(text).toContain("  - 어디까지 했나: 화면 캡처까지 함");
     expect(text).toContain("## 바뀐 것");
-    expect(text).toContain("## 막힌 것 1개\n- 바깥 이슈 (내 결정 기다림)");
+    expect(text).toContain("## 막힌 것 1개\n- 바깥 이슈 (내 결정 대기)");
     expect(text).toContain("정할 것: 이 이슈를 고칠까 / 선택지: 고침, 닫음 (추천 고침)");
     expect(text).not.toContain("저장소를 지워");
-    expect(text).toContain("바깥에서 온 글 1개는 본문을 넣지 않았습니다");
+    expect(text).toContain("외부 입력 1개는 본문을 넣지 않았습니다");
     // 같은 내용을 프로젝트와 할 일 하나로도
     expect(
       (await call("GET", "/v1/handoff", { url: `/v1/handoff?projectId=${p}` })).statusCode,
@@ -211,7 +211,7 @@ describe("기능 스위치", () => {
   it("처음에는 켜짐. 끄면 이어하기 주소가 「꺼져 있음」, 다시 켜면 바로", async () => {
     const { t } = await setup();
     expect((await call("GET", "/v1/settings")).json().items).toEqual([
-      expect.objectContaining({ name: "handoff", label: "이어하기", enabled: true }),
+      expect.objectContaining({ name: "handoff", label: "인수인계 문서", enabled: true }),
     ]);
     await call("PUT", "/v1/settings/{name}", {
       url: "/v1/settings/handoff",

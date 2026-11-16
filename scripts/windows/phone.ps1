@@ -26,5 +26,5 @@ $self = (Invoke-Quiet { & $ts status --json }) -join "`n" | ConvertFrom-Json
 $name = ($self.Self.DNSName).TrimEnd('.')
 Say '폰 주소'
 Write-Host "https://$name"
-Write-Host '폰에서: Tailscale 앱을 켠 채 위 주소를 열고, 처음 한 번 출입증을 넣는다 (홈 화면에 추가해 두면 앱처럼 열림)'
+Write-Host '폰에서: Tailscale 앱을 켠 채 위 주소를 열고, 처음 한 번 API 키를 넣는다 (홈 화면에 추가해 두면 앱처럼 열림)'
 Show-SleepWarning

@@ -87,7 +87,7 @@ describe("vault 할 일 원장 읽기", () => {
 });
 
 describe("가져오기", () => {
-  it("열린 일만 새로 넣고, 결정은 「내 결정 기다림」, AI 몫은 지금 할 것 후보에서 빠짐", async () => {
+  it("열린 일만 새로 넣고, 결정은 「내 결정 대기」, AI 담당은 지금 할 것 후보에서 빠짐", async () => {
     const path = writeLedger(base);
     const out = await runImport(
       store,
@@ -106,7 +106,7 @@ describe("가져오기", () => {
     });
     expect(bySource("vm-4")?.due_at).toBe("2026-11-18T14:59:59.000Z");
     expect(store.listProjects().map((p) => p.name)).toEqual(["vault 유지보수"]);
-    // 지금 할 것: AI 몫(vm-2)과 정할 일(vm-3)을 빼고 vm-4
+    // 지금 할 것: AI 담당(vm-2)과 정할 일(vm-3)을 빼고 vm-4
     expect(pickNow(store.listTasks())?.source_ref).toBe("vm-4");
     // 기록은 가져오기로, 누가 = import, 종류 없음
     const c = store.listChanges({ limit: 1 })[0];
@@ -196,7 +196,7 @@ describe("가져오기", () => {
   });
 });
 
-describe("깃허브 이슈 (AI 몫)", () => {
+describe("깃허브 이슈 (AI 담당)", () => {
   const issues = (state: string, list: unknown[]) => ({ state, list });
   const fake = (pages: { state: string; list: unknown[] }[]): FetchLike & { urls: string[] } => {
     const urls: string[] = [];
@@ -210,7 +210,7 @@ describe("깃허브 이슈 (AI 몫)", () => {
     return f;
   };
 
-  it("열린 이슈는 넣고 PR 은 빼며, 닫힌 이슈는 이미 가져온 것만 끝냄. 본문은 안 가져옴", async () => {
+  it("열린 이슈는 넣고 PR 은 빼며, 닫힌 이슈는 이미 가져온 것만 완료. 본문은 안 가져옴", async () => {
     const open = issues("open", [
       {
         number: 1,
@@ -269,7 +269,7 @@ describe("깃허브 이슈 (AI 몫)", () => {
   });
 });
 
-describe("vault 받는 폴더 (클라우드 세션의 요청)", () => {
+describe("vault 요청함 (클라우드 세션의 요청)", () => {
   it("새 할 일, 하는 중, 끝, 멈춤을 처리하고 처리함으로 옮기며 결과를 남김", () => {
     const inbox = join(dir, "inbox");
     mkdirSync(inbox);
@@ -286,7 +286,7 @@ describe("vault 받는 폴더 (클라우드 세션의 요청)", () => {
       누가: "Claude Cloud",
     });
     put("2.json", { 요청: "하는 중", 할일: t, 누가: "claude-cloud" });
-    put("3.json", { 요청: "멈춤", 할일: u, 이유: "내 결정 기다림" });
+    put("3.json", { 요청: "멈춤", 할일: u, 이유: "내 결정 대기" });
     put("4.json", { 요청: "휴지통", 할일: t });
     writeFileSync(join(inbox, "5.json"), "{깨진");
     const out = processInbox(store, inbox, now);
@@ -357,7 +357,7 @@ describe("vault 받는 폴더 (클라우드 세션의 요청)", () => {
     expect(sheet).toContain("  - 정할 것: 둘째 줄? / 선택지: 넣기, 빼기 (추천 넣기)");
   });
 
-  it("이어하기 한 장을 프로젝트마다 vault 에 씀, 스위치를 끄면 안 씀", async () => {
+  it("인수인계 문서를 프로젝트마다 vault 에 씀, 스위치를 끄면 안 씀", async () => {
     const p = store.createProject("author", "내일은/내일");
     store.createTask("author", { projectId: p, title: "남은 일" });
     const q = store.createProject("author", "끝난 프로젝트");
@@ -365,18 +365,18 @@ describe("vault 받는 폴더 (클라우드 세션의 요청)", () => {
     const hd = join(dir, "handoff");
     const out = await runImport(store, { handoffDir: hd }, deps);
     expect(out.handoffs?.map((f) => f.replace(hd, ""))).toEqual([`${join("/", "내일은-내일")}.md`]);
-    expect(readFileSync(join(hd, "내일은-내일.md"), "utf8")).toContain("# 이어하기: 내일은/내일");
+    expect(readFileSync(join(hd, "내일은-내일.md"), "utf8")).toContain("# 인수인계: 내일은/내일");
     store.setSetting("author", "handoff", false);
     expect((await runImport(store, { handoffDir: hd }, deps)).handoffs).toEqual([]);
   });
 
-  it("받는 폴더가 없으면 아무것도 안 함", () => {
+  it("요청함가 없으면 아무것도 안 함", () => {
     expect(processInbox(store, join(dir, "없음"), now)).toEqual([]);
   });
 });
 
-describe("오늘 한 장", () => {
-  it("지금 할 것, 내가 정할 것, 마감, 하는 중, AI 몫과 요청 모양을 씀", async () => {
+describe("오늘 요약", () => {
+  it("지금 할 것, 내가 정할 것, 마감, 하는 중, AI 담당과 요청 모양을 씀", async () => {
     const path = writeLedger(base);
     const sheet = join(dir, "naeil-today.md");
     const out = await runImport(
@@ -387,14 +387,14 @@ describe("오늘 한 장", () => {
     expect(out.sheet).toBe(sheet);
     const text = readFileSync(sheet, "utf8");
     expect(text).toContain("generated_by: naeil");
-    expect(text).toContain("# 내일은내일 오늘 한 장 (2026-11-16)");
+    expect(text).toContain("# 내일은내일 오늘 요약 (2026-11-16)");
     const vm4 = bySource("vm-4")?.id as string;
     expect(text).toMatch(
       new RegExp(`## 지금 할 것\\n- 지도 새로 고침 \\(vault-maintenance, D-2\\) \`${vm4}\``),
     );
     expect(text).toContain("## 내가 정할 것\n- 3주 넘게 멈춘 4건 계속할지");
-    expect(text).toContain("## AI 몫 열린 것 1개");
-    expect(text).toContain('"요청": "끝"');
+    expect(text).toContain("## AI 담당 열린 것 1개");
+    expect(text).toContain('"요청": "완료"');
     expect(todaySheet(new Store(openDb(":memory:"), "me", now), now())).toContain(
       "## 지금 할 것\n- 없음",
     );

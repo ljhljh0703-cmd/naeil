@@ -77,9 +77,9 @@ function KeyForm({ onSaved, error }: { onSaved: () => void; error?: string }) {
         </div>
       </header>
       <section className="card">
-        <h2>출입증 넣기</h2>
+        <h2>API 키 넣기</h2>
         <p className="muted">
-          맥 터미널에서 <code>npm run key -- new author</code> 로 만든 화면용 출입증을 붙여
+          맥 터미널에서 <code>npm run key -- new author</code> 로 만든 화면용 API 키를 붙여
           넣으세요. 이 브라우저에만 저장됩니다.
         </p>
         {error && <p className="error">{error}</p>}
@@ -87,7 +87,7 @@ function KeyForm({ onSaved, error }: { onSaved: () => void; error?: string }) {
           <input
             type="password"
             autoComplete="off"
-            placeholder="nk_로 시작하는 출입증"
+            placeholder="nk_로 시작하는 API 키"
             value={value}
             onChange={(e) => setValue(e.target.value)}
           />
@@ -179,7 +179,7 @@ export function App() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setKey(null);
-        setKeyError("출입증이 맞지 않습니다. 다시 넣어 주세요.");
+        setKeyError("API 키가 맞지 않습니다. 다시 넣어 주세요.");
         setHasKey(false);
       } else {
         setError((err as Error).message);
@@ -268,12 +268,12 @@ export function App() {
     }
   };
 
-  // 이어하기 한 장을 복사. 암호화 주소가 아니면(폰 평문 주소) 클립보드 기능이 없어 예전 방식으로
+  // 인수인계 문서를 복사. 암호화 주소가 아니면(폰 평문 주소) 클립보드 기능이 없어 예전 방식으로
   const copyHandoff = (scope: { taskId?: string; milestoneId?: string }) =>
     void run(async () => {
       const h = await api.handoff(scope);
       await copyText(h.text);
-      setInfo(`「${h.title}」 이어하기 한 장을 복사했습니다. 새 세션에 붙여 넣으세요.`);
+      setInfo(`「${h.title}」 인수인계 문서를 복사했습니다. 새 세션에 붙여 넣으세요.`);
     });
 
   const onAction: ActFn = (ref, a, value) => {
@@ -361,7 +361,7 @@ export function App() {
     })
     .filter((c): c is CardModel => !!c);
   const allCards = cards(tasks, (t) =>
-    t.status !== "done" ? { id: "done", label: "끝냄" } : undefined,
+    t.status !== "done" ? { id: "done", label: "완료" } : undefined,
   );
   const today = kstDate(now);
   const doneToday = changes.filter(
@@ -493,9 +493,9 @@ export function App() {
       </h2>
       <p className="meta">
         {projects.find((p) => p.id === current.projectId)?.name}
-        {current.status === "doing" && <span className="chip tone-info">하는 중</span>}
+        {current.status === "doing" && <span className="chip tone-info">진행 중</span>}
         {current.dueAt && <span className="chip">{dLabel(dDay(current.dueAt, now))}</span>}
-        {day.pinned === current.id && <span className="chip">오늘은 이거</span>}
+        {day.pinned === current.id && <span className="chip">오늘 고정</span>}
       </p>
       <div className="row">
         {current.status === "todo" ? (
@@ -512,7 +512,7 @@ export function App() {
             className="primary"
             onClick={() => void run(() => api.setStatus(current.id, "done"))}
           >
-            끝냄
+            완료
           </button>
         )}
         <button
@@ -528,7 +528,7 @@ export function App() {
         </button>
         {day.pinned !== current.id && (
           <button type="button" onClick={() => day.save({ ...day, pinned: current.id })}>
-            오늘은 이거
+            오늘 고정
           </button>
         )}
         <button
@@ -565,7 +565,7 @@ export function App() {
         {(todayData?.notices ?? []).map((n) => (
           <div key={n.name} className="notice" role="status">
             <span>
-              <strong>{n.changedBy}</strong> 가 <strong>{n.label}</strong> 스위치를 껐습니다
+              <strong>{n.changedBy}</strong> 가 <strong>{n.label}</strong> 기능을 껐습니다
               {n.reason ? `: ${n.reason}` : ""}
             </span>
             <button
@@ -736,7 +736,7 @@ export function App() {
                 setHasKey(false);
               }}
             >
-              출입증 바꾸기
+              API 키 바꾸기
             </button>
           )}
         </footer>

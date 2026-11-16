@@ -1,7 +1,7 @@
 // 윈도우 상시 서버의 실행기. 작업 스케줄러가 이 파일을 부른다 (맥은 launchd 가 같은 일을 한다).
 //   node service.mjs server <앱 폴더>   서버를 켜고, 0 이 아닌 코드로 끝나면 잠깐 뒤 다시 켠다. 0 이면 같이 끝난다
 //   node service.mjs backup <앱 폴더>   매일 백업 한 번 (백업 + 복원 연습 + 오래된 것 정리)
-//   node service.mjs import <앱 폴더>   가져오기 한 번 (vault 받는 폴더, 출처 가져오기, 오늘 한 장. 설정은 <앱 폴더>/import.json)
+//   node service.mjs import <앱 폴더>   가져오기 한 번 (vault 요청함, 출처 가져오기, 오늘 요약. 설정은 <앱 폴더>/import.json)
 // 설정은 <앱 폴더>/service.json (배포 스크립트가 씀): { port, db, logDir, restartDelayMs? }
 // 서버는 <앱 폴더>/current 의 판으로 켠다. 판을 바꿔 끼운 뒤 다시 켜면 새 판이 뜬다.
 //

@@ -95,10 +95,10 @@ try {
     }
     const file = pick(arg);
     const r = await restore(file, config.dbPath, ledger);
-    console.log(`되살림: ${basename(file)} → ${config.dbPath}`);
-    if (r.movedTo) console.log(`되살리기 전 자료는 지우지 않고 옮겨 둠: ${r.movedTo}`);
+    console.log(`복원: ${basename(file)} → ${config.dbPath}`);
+    if (r.movedTo) console.log(`복원 전 자료는 지우지 않고 옮겨 둠: ${r.movedTo}`);
     if (r.reapplied.length > 0)
-      console.log(`폐기 명부로 다시 막은 출입증: ${r.reapplied.join(", ")}`);
+      console.log(`폐기 키 목록로 다시 막은 API 키: ${r.reapplied.join(", ")}`);
   } else {
     console.error("쓰는 법: backup run | list | drill [파일|latest] | restore <파일|latest>");
     process.exit(1);

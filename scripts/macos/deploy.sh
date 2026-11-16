@@ -5,10 +5,10 @@
 #
 # 하는 일 (순서대로, 한 단계라도 실패하면 멈춘다)
 #   1) Node 확인     지금 셸의 node 가 .node-version 이상인지
-#   2) 굽기          npm run build (서버와 화면)
-#   3) 판 만들기     실행에 필요한 것만 「라이브러리/Application Support/naeil/releases/<판>」 에 복사
+#   2) 빌드          npm run build (서버와 화면)
+#   3) 릴리스 만들기     실행에 필요한 것만 「라이브러리/Application Support/naeil/releases/<릴리스>」 에 복사
 #                    저장소(다운로드 폴더)는 맥이 자동 실행 프로그램의 접근을 막는 폴더라 거기서 직접 켜지 않는다
-#   4) 판 시험       새 판을 빈 폴더, 빈 자료로 켜 연기 시험 (실제 자료는 건드리지 않음)
+#   4) 스모크 테스트     새 릴리스를 빈 폴더, 빈 자료로 켜 스모크 테스트 (실제 자료는 건드리지 않음)
 #   5) 첫 자료       자료 파일이 아직 없고 저장소에 예전 자료(data/naeil.db)가 있으면 「복사」 (원본은 그대로)
 #   6) 바꿔 끼우기   current 를 새 판으로
 #   5-1) 배포 전 백업 자료 파일이 있으면 새 판의 백업 명령으로 백업과 복원 연습. 실패하면 바꿔 끼우지 않음
@@ -18,7 +18,7 @@
 # 바꿀 수 있는 값 (환경 변수)
 #   NAEIL_NODE=/경로/node      쓸 node (기본: 지금 셸의 node)
 #   NAEIL_PORT=3700            포트
-#   NAEIL_DEPLOY_SKIP_BUILD=1  굽기 건너뛰기 (이미 구웠을 때)
+#   NAEIL_DEPLOY_SKIP_BUILD=1  빌드 건너뛰기 (이미 빌드했을 때)
 #   NAEIL_APP_HOME, NAEIL_LAUNCH_AGENTS, NAEIL_LOG_DIR  시험용 자리 바꾸기
 set -euo pipefail
 
@@ -55,7 +55,7 @@ case "$NODE" in
   "$HOME/Downloads/"*|"$HOME/Documents/"*|"$HOME/Desktop/"*) die "node 가 맥이 막는 폴더(다운로드, 문서, 데스크탑) 안에 있음. 다른 node 를 NAEIL_NODE 로" ;;
 esac
 
-say "2) 굽기"
+say "2) 빌드"
 if [ "${NAEIL_DEPLOY_SKIP_BUILD:-}" = "1" ]; then
   echo "건너뜀"
 else
@@ -64,7 +64,7 @@ else
 fi
 [ -f dist/server.js ] && [ -f web/dist/index.html ] || die "구운 결과가 없음 (dist/server.js, web/dist/index.html)"
 
-say "3) 판 만들기"
+say "3) 릴리스 만들기"
 SHA="$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
 DIRTY=""; git diff --quiet HEAD 2>/dev/null || DIRTY="-dirty"
 REL_ID="$(date +%Y%m%d-%H%M%S)-$SHA$DIRTY"
@@ -81,10 +81,10 @@ cp scripts/smoke-dist.mjs scripts/wait-health.mjs "$REL/scripts/"
 cp -R node_modules "$REL/node_modules"
 (cd "$REL" && npm prune --omit=dev --no-audit --no-fund >/dev/null)
 printf '%s\n' "$REL_ID" > "$REL/RELEASE"
-echo "판: $REL_ID"
+echo "릴리스: $REL_ID"
 
-say "4) 판 시험 (빈 자료, 빈 폴더)"
-"$NODE" "$REL/scripts/smoke-dist.mjs" || { rm -rf "$REL"; die "새 판 연기 시험 실패. 판을 지우고 멈춤 (지금 켜진 판은 그대로)"; }
+say "4) 스모크 테스트 (빈 자료, 빈 폴더)"
+"$NODE" "$REL/scripts/smoke-dist.mjs" || { rm -rf "$REL"; die "새 릴리스 스모크 테스트 실패. 새 릴리스를 지우고 멈춤 (지금 켜진 릴리스는 그대로)"; }
 
 say "5) 자료 파일"
 if [ -e "$DB" ]; then
@@ -113,7 +113,7 @@ say "6) 바꿔 끼우기"
 PREV=""
 [ -L "$APP_HOME/current" ] && PREV="$(readlink "$APP_HOME/current")"
 ln -sfn "$REL" "$APP_HOME/current"
-echo "지금 판: $REL_ID${PREV:+ (이전: $(basename "$PREV"))}"
+echo "지금 릴리스: $REL_ID${PREV:+ (이전: $(basename "$PREV"))}"
 
 say "7) 자동 실행 설정"
 esc() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }

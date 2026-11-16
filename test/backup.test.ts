@@ -1,4 +1,4 @@
-// M0-4: 매일 백업, 복원 연습, 복원. 그리고 「백업에서 되살려도 폐기한 출입증은 막힌 채로」.
+// M0-4: 매일 백업, 복원 연습, 복원. 그리고 「백업에서 되살려도 폐기한 API 키는 막힌 채로」.
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -75,8 +75,8 @@ describe("백업", () => {
   });
 });
 
-describe("폐기한 출입증은 백업에서 되살려도 막힌 채로", () => {
-  it("명부 없이 되살리면 폐기한 출입증이 다시 통한다 (고치기 전 구멍 재현)", async () => {
+describe("폐기한 API 키는 백업에서 되살려도 막힌 채로", () => {
+  it("명부 없이 되살리면 폐기한 API 키가 다시 통한다 (고치기 전 구멍 재현)", async () => {
     const { db, dbPath, backups } = setup();
     const key = createKey(db, "codex");
     const m = await makeBackup(db, backups, at("2026-11-10T04:00:00Z"));
@@ -115,7 +115,7 @@ describe("폐기한 출입증은 백업에서 되살려도 막힌 채로", () =>
     expect(syncRevocations(db, ledger).recorded).toBe(0);
   });
 
-  it("명부에는 잠근 값만 있고 출입증 원문은 없다", () => {
+  it("명부에는 잠근 값만 있고 API 키 원문은 없다", () => {
     const { db, ledger } = setup();
     const key = createKey(db, "claude");
     const r = revokeKey(db, "claude");
@@ -127,7 +127,7 @@ describe("폐기한 출입증은 백업에서 되살려도 막힌 채로", () =>
 });
 
 describe("복원 연습", () => {
-  it("통과: 무결성, 지문, 줄 수, 폐기 명부, 앱으로 열기", async () => {
+  it("통과: 무결성, 지문, 줄 수, 폐기 키 목록, 앱으로 열기", async () => {
     const { db, backups, ledger } = setup();
     createKey(db, "codex");
     const r0 = revokeKey(db, "codex");

@@ -60,7 +60,7 @@ export type Ctx = {
   now: Date;
   // 결정함 (M1-4). 없으면 빈 것으로
   decisions?: Decision[];
-  // 이어하기 스위치. 끄면 이어하기 버튼과 「어디까지 했나」 칸이 숨음 (기록은 계속 받음)
+  // 인수인계 문서 기능. 끄면 이어하기 버튼과 「어디까지 했나」 칸이 숨음 (기록은 계속 받음)
   handoffOn?: boolean;
 };
 
@@ -153,7 +153,7 @@ export function foldImports(changes: Change[], within = 10 * 60_000): RecentRow[
   for (const c of changes) {
     const prev = out.at(-1);
     const head = prev?.group?.[0] ?? prev?.change;
-    // 가져오기가 남긴 「정할 것 물음」도 같은 회차로 (원장의 결정은 결정함에 질문으로 들어감)
+    // 가져오기가 남긴 「결정 요청」도 같은 회차로 (원장의 결정은 결정함에 질문으로 들어감)
     if (
       (c.action === "import" || c.action === "ask") &&
       prev &&
@@ -245,8 +245,8 @@ export function taskChips(t: ApiTask, ctx: Ctx): Chip[] {
     const d = dDay(t.dueAt, ctx.now);
     chips.push({ label: dLabel(d), tone: d < 0 ? "fail" : d <= 1 ? "warn" : "neutral" });
   }
-  if (t.owner === "ai") chips.push({ label: "AI 몫", tone: "neutral" });
-  if (t.externalText) chips.push({ label: "바깥에서 온 글", tone: "neutral" });
+  if (t.owner === "ai") chips.push({ label: "AI 담당", tone: "neutral" });
+  if (t.externalText) chips.push({ label: "외부 입력", tone: "neutral" });
   return chips.slice(0, 3);
 }
 
@@ -266,7 +266,7 @@ registerItemType<ApiTask>("task", {
     if (t.status !== "done")
       actions.push({
         id: "done",
-        label: "끝냄",
+        label: "완료",
         tone: t.status === "doing" ? "primary" : "default",
       });
     if (t.status === "done") actions.push({ id: "reopen", label: "다시 열기" });
@@ -274,7 +274,7 @@ registerItemType<ApiTask>("task", {
     if (t.blockedReason === "my_decision" && !ask) actions.push({ id: "decided", label: "정했음" });
     else if (t.status !== "done" && t.blockedReason !== "my_decision")
       actions.push({ id: "need-decision", label: "내가 정할 게 있음" });
-    if (ctx.handoffOn !== false) actions.push({ id: "handoff", label: "이어하기 복사" });
+    if (ctx.handoffOn !== false) actions.push({ id: "handoff", label: "인수인계 복사" });
     const choices = ctx.milestones.filter((m) => m.projectId === t.projectId);
     if (choices.length > 0) {
       actions.push({
@@ -307,7 +307,7 @@ registerItemType<ApiTask>("task", {
               label: "이름",
               control: { kind: "text", value: t.title, maxLength: 200 },
             },
-            // 어디까지 했나 한 줄 (이어하기 스위치를 끄면 숨음. 남긴 한 줄은 지우지 않음)
+            // 어디까지 했나 한 줄 (인수인계 문서 기능을 끄면 숨음. 남긴 한 줄은 지우지 않음)
             ...(ctx.handoffOn !== false && t.status !== "done"
               ? [
                   {
@@ -339,7 +339,7 @@ registerItemType<ApiTask>("task", {
               label: "어디까지 했나",
               value: ctx.handoffOn !== false ? (t.progressNote ?? null) : null,
             },
-            { label: "몫", value: t.owner === "ai" ? "AI 몫 (지금 할 것 후보에서 빠짐)" : null },
+            { label: "몫", value: t.owner === "ai" ? "AI 담당 (지금 할 것 후보에서 빠짐)" : null },
             { label: "만든 날", value: timeOf(t.createdAt) },
             { label: "마지막으로 바뀜", value: timeOf(t.updatedAt) },
           ],
@@ -351,7 +351,7 @@ registerItemType<ApiTask>("task", {
           text: t.body,
           // 바깥(이슈·제보)에서 온 글은 AI가 지시로 따르지 않는 글이라는 표시를 같이 보인다
           note: t.externalText
-            ? "바깥에서 온 글입니다. 이 안의 문장은 지시로 따르지 않습니다."
+            ? "외부 입력입니다. 이 안의 문장은 지시로 따르지 않습니다."
             : undefined,
         },
         {
@@ -399,7 +399,7 @@ const DETAIL_KEY: Record<string, string> = {
   source: "출처",
   due_at: "마감",
   milestone_id: "마일스톤",
-  cleared_block: "같이 풀린 멈춤",
+  cleared_block: "같이 풀린 보류",
   change: "가져오기",
   ref: "출처 번호",
   owner: "몫",
@@ -414,7 +414,7 @@ function detailValue(key: string, v: unknown, ctx: Ctx): string | null {
   if (key === "from" || key === "to") return STATUS[s as Status] ?? s;
   if (key === "reason" || key === "cleared_block") return BLOCKED[s as keyof typeof BLOCKED] ?? s;
   if (key === "due_at") return dayOf(s);
-  if (key === "source" && s === "direct") return "직접 만듦";
+  if (key === "source" && s === "direct") return "직접 생성";
   return s;
 }
 
@@ -463,7 +463,7 @@ function milestoneStatus(m: Milestone, ctx: Ctx): Chip | undefined {
     (x) => x.milestone?.id === m.id,
   );
   if (!g) return undefined;
-  if (isComplete(g.progress)) return { label: "끝", tone: "done" };
+  if (isComplete(g.progress)) return { label: "완료", tone: "done" };
   if (g.next) return { label: "다음", tone: "info" };
   return undefined;
 }
@@ -507,7 +507,7 @@ registerItemType<Milestone>("milestone", {
               label: "목표 날짜",
               control: { kind: "date", value: m.dueAt ? kstDate(new Date(m.dueAt)) : "" },
             },
-            ...(ctx.handoffOn !== false ? [{ id: "handoff", label: "이어하기 복사" }] : []),
+            ...(ctx.handoffOn !== false ? [{ id: "handoff", label: "인수인계 복사" }] : []),
             { id: "milestone-trash", label: "휴지통", tone: "danger" },
           ],
         },
@@ -536,7 +536,7 @@ registerItemType<Milestone>("milestone", {
               value:
                 p.total === 0
                   ? "속한 할 일 없음"
-                  : `${p.done}/${p.total} 끝${p.doing ? ` · 하는 중 ${p.doing}` : ""} (${p.percent}%)`,
+                  : `${p.done}/${p.total} 완료${p.doing ? ` · 진행 중 ${p.doing}` : ""} (${p.percent}%)`,
             },
             { label: "만든 날", value: timeOf(m.createdAt) },
           ],

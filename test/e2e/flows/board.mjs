@@ -1,4 +1,4 @@
-// 마일스톤 화면: 진행 막대, 「다음」 강조, 상세 열기, 목표 날짜, 마일스톤 옮기기, 끝냄, 넣기, 프로젝트 바꾸기, 새로고침 유지, 폰 폭
+// 마일스톤 화면: 진행 막대, 「다음」 강조, 상세 열기, 목표 날짜, 마일스톤 옮기기, 완료, 넣기, 프로젝트 바꾸기, 새로고침 유지, 폰 폭
 import { fixture as data, seoulDate } from "../fixture.mjs";
 
 export const fixture = data;
@@ -20,7 +20,7 @@ export async function run({ page, ok, until, base, out }) {
     "다 안 끝난 첫 마일스톤에 「다음」 강조",
   );
   ok(
-    (await first.locator(".bar-text").textContent()).startsWith("1/2 끝"),
+    (await first.locator(".bar-text").textContent()).startsWith("1/2 완료"),
     "마일스톤 진행 수 표시",
   );
   ok((await p.locator(".ms.next").count()) === 1, "「다음」은 하나만");
@@ -72,12 +72,12 @@ export async function run({ page, ok, until, base, out }) {
   );
   await p.keyboard.press("Escape");
 
-  // 보드에서 끝냄 → 진행 갱신, 끝난 건 접힘
+  // 보드에서 완료 → 진행 갱신, 끝난 건 접힘
   const before = await mac.locator(".bar-text").textContent();
   await mac.locator(".card-action").first().click();
   ok(
     await until(async () => (await mac.locator(".bar-text").textContent()) !== before),
-    `보드에서 끝냄 → 진행 바뀜 (${before} → ${await mac.locator(".bar-text").textContent()})`,
+    `보드에서 완료 → 진행 바뀜 (${before} → ${await mac.locator(".bar-text").textContent()})`,
   );
   ok(
     (await mac.locator(".bar-text").textContent()).startsWith("1/"),

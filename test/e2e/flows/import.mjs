@@ -1,5 +1,5 @@
-// 가져오기와 vault 다리 (M1-3): 원장에서 가져온 일이 작업판에 보이고, AI 몫은 지금 할 것에서 빠지고,
-// 마지막에 한 일은 한 줄로 접히고, 받는 폴더의 요청이 반영되고, 오늘 한 장이 써짐
+// 가져오기와 vault 다리 (M1-3): 원장에서 가져온 일이 작업판에 보이고, AI 담당은 지금 할 것에서 빠지고,
+// 마지막에 한 일은 한 줄로 접히고, 요청함의 요청이 반영되고, 오늘 요약이 써짐
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -48,7 +48,7 @@ export async function run({ page, ok, until, api, base, cli, work }) {
   await p.waitForSelector(".hero");
   ok(
     (await p.locator(".hero h2").textContent()).includes("지도 새로 고침"),
-    "지금 할 것은 작가 몫에서",
+    "지금 할 것은 작가 담당에서",
   );
   ok(
     (await p.locator("main").textContent()).includes("멈춘 4건 계속할지"),
@@ -62,10 +62,10 @@ export async function run({ page, ok, until, api, base, cli, work }) {
   );
   ok(
     existsSync(sheet) && readFileSync(sheet, "utf8").includes("## 지금 할 것\n- 지도 새로 고침"),
-    "오늘 한 장이 vault 에 써짐",
+    "오늘 요약이 vault 에 써짐",
   );
 
-  // 클라우드 세션이 받는 폴더에 요청을 둠 → 다음 가져오기에 반영
+  // 클라우드 세션이 요청함에 요청을 둠 → 다음 가져오기에 반영
   const tasks = (await api("GET", "/v1/tasks?limit=200")).json.items;
   const map = tasks.find((t) => t.title === "지도 새로 고침");
   writeFileSync(
@@ -87,7 +87,7 @@ export async function run({ page, ok, until, api, base, cli, work }) {
   await p.waitForSelector(".hero");
   ok(
     await until(async () => (await p.locator(".hero h2").textContent()).includes("세션이 넣은 일")),
-    "받는 폴더의 요청: 끝낸 일은 빠지고 세션이 넣은 일이 지금 할 것으로",
+    "요청함의 요청: 끝낸 일은 빠지고 세션이 넣은 일이 지금 할 것으로",
   );
   const changes = (await api("GET", "/v1/changes?actorKind=ai")).json.items;
   ok(
@@ -95,12 +95,12 @@ export async function run({ page, ok, until, api, base, cli, work }) {
     "세션 요청은 AI 종류로 기록",
   );
 
-  // AI 몫 표시 (전체 보기)
+  // AI 담당 표시 (전체 보기)
   await p.getByRole("button", { name: /할 일 전체/ }).click();
   ok(
     await until(async () =>
-      (await p.locator(".item-card", { hasText: "부산물 조사" }).textContent()).includes("AI 몫"),
+      (await p.locator(".item-card", { hasText: "부산물 조사" }).textContent()).includes("AI 담당"),
     ),
-    "AI 몫 할 일에 표시",
+    "AI 담당 할 일에 표시",
   );
 }

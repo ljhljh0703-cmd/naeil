@@ -49,8 +49,8 @@ export class VersionMismatch extends AppError {
 }
 
 export class Unauthorized extends AppError {
-  constructor(detail = "Authorization: Bearer <출입증> 이 없거나 틀림") {
-    super(401, "unauthorized", "출입증 없음", detail);
+  constructor(detail = "Authorization: Bearer <API 키> 이 없거나 틀림") {
+    super(401, "unauthorized", "API 키 없음", detail);
   }
 }
 

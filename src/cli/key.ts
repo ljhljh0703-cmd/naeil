@@ -1,4 +1,4 @@
-// 출입증 명령 (작가 결정 2026-10-25: 도구별 출입증 3장)
+// API 키 명령 (작가 결정 2026-10-25: 도구별 API 키 3장)
 //   npm run key -- new author     화면용 (사람)
 //   npm run key -- new claude     Claude 세션용 (AI)
 //   npm run key -- new codex      Codex 세션용 (AI)
@@ -38,10 +38,10 @@ try {
     }
     const key = createKey(db, name, "me", kind);
     console.log(
-      `\n「${name}」 출입증, 종류 ${kind} (지금 한 번만 보입니다. 바로 복사해 두세요)\n\n  ${key}\n`,
+      `\n「${name}」 API 키, 종류 ${kind} (지금 한 번만 보입니다. 바로 복사해 두세요)\n\n  ${key}\n`,
     );
     console.log(
-      "어디에 넣나: 화면은 첫 화면의 출입증 칸, AI 세션은 그 도구 설정 파일의 NAEIL_KEY.",
+      "어디에 넣나: 화면은 첫 화면의 API 키 칸, AI 세션은 그 도구 설정 파일의 NAEIL_KEY.",
     );
     console.log(
       "저장소(깃허브)에는 절대 올리지 마세요. 잃어버리면 revoke 후 새로 만들면 됩니다.\n",
@@ -51,9 +51,9 @@ try {
     if (revoked) {
       // 자료 파일 밖 명부에도 적어, 백업에서 되살려도 다시 통하지 않게 한다
       addToLedger(ledger, [revoked]);
-      console.log(`「${name}」 출입증을 폐기했습니다. 폐기 명부: ${ledger}`);
+      console.log(`「${name}」 API 키를 폐기했습니다. 폐기 키 목록: ${ledger}`);
     } else {
-      console.log(`살아 있는 「${name}」 출입증이 없습니다.`);
+      console.log(`살아 있는 「${name}」 API 키가 없습니다.`);
     }
   } else if (cmd === "list") {
     for (const k of listKeys(db)) {

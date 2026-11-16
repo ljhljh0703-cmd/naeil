@@ -2,7 +2,7 @@
 // AI 세션이 끊겨 같은 「만들기」를 다시 보내도 한 번만 만들어지게 한다.
 // - 같은 열쇠 + 같은 내용 → 처음 응답을 그대로 다시 준다
 // - 같은 열쇠 + 다른 내용 → 422
-// - 열쇠는 24시간 보관. 출입증마다 따로 센다. 성공한 응답(2xx)만 보관한다
+// - 열쇠는 24시간 보관. API 키마다 따로 센다. 성공한 응답(2xx)만 보관한다
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 import { IdempotencyReused } from "./errors.js";

@@ -1,26 +1,26 @@
 // 화면에 보이는 말과 시각 표시. 한곳에 모아 두면 화면마다 같은 말을 쓴다.
 import type { BlockedReason, Status } from "./today.js";
 
-export const STATUS: Record<Status, string> = { todo: "할 일", doing: "하는 중", done: "끝" };
+export const STATUS: Record<Status, string> = { todo: "할 일", doing: "진행 중", done: "완료" };
 
 export const BLOCKED: Record<BlockedReason, string> = {
-  my_decision: "내 결정 기다림",
-  ai_working: "AI가 하는 중",
-  external: "바깥 답 기다림",
+  my_decision: "내 결정 대기",
+  ai_working: "AI 작업 중",
+  external: "외부 응답 대기",
   tech: "기술 문제",
 };
 
 export const ACTION: Record<string, string> = {
-  create: "만듦",
-  status: "상태 바꿈",
-  update: "고침",
-  block: "멈춤",
-  unblock: "멈춤 풀림",
+  create: "생성",
+  status: "상태 변경",
+  update: "수정",
+  block: "보류",
+  unblock: "보류 해제",
   trash: "휴지통",
-  revive: "되살림",
+  revive: "복원",
   import: "가져옴",
-  ask: "정할 것 물음",
-  decide: "정함",
+  ask: "결정 요청",
+  decide: "결정",
 };
 
 // 가져오기 기록 한 줄의 「무엇이 바뀌었나」 (M1-3)

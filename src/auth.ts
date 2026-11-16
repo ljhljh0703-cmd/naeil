@@ -1,4 +1,4 @@
-// 도구별 출입증 (작가 결정 2026-10-25).
+// 도구별 API 키 (작가 결정 2026-10-25).
 // - 도구마다 1장 (author = 화면, claude, codex). 세션마다 만들지 않는다
 // - 키 원문은 만들 때 한 번만 보여 주고, 서버에는 잠근 값(sha256)만 저장
 // - 서버는 키를 보고 「누가」를 스스로 정한다. 요청이 밝힌 이름은 믿지 않는다
@@ -13,7 +13,7 @@ export function hashKey(key: string): string {
   return createHash("sha256").update(key).digest("hex");
 }
 
-// 출입증 종류 (M1-7): 사람, AI 세션, 자동 검사. 「AI 가 바꿨다」 표시와 나중 권한표가 이 칸에 기댄다
+// API 키 종류 (M1-7): 사람, AI 세션, 자동 검사. 「AI 가 바꿨다」 표시와 나중 권한표가 이 칸에 기댄다
 export const KEY_KINDS = ["human", "ai", "ci"] as const;
 export type KeyKind = (typeof KEY_KINDS)[number];
 
@@ -38,14 +38,14 @@ export function createKey(
     ).run(randomUUID(), workspace, name, hashKey(key), new Date().toISOString(), kind);
   } catch (err) {
     if ((err as { code?: string }).code === "SQLITE_CONSTRAINT_UNIQUE") {
-      throw new BadInput(`「${name}」 출입증이 이미 있음. 먼저 폐기(revoke)한 뒤 새로 만드세요`);
+      throw new BadInput(`「${name}」 API 키가 이미 있음. 먼저 폐기(revoke)한 뒤 새로 만드세요`);
     }
     throw err;
   }
   return key;
 }
 
-// 폐기하면 잠근 값을 돌려준다. 부르는 쪽이 폐기 명부(src/revocations.ts)에도 적는다.
+// 폐기하면 잠근 값을 돌려준다. 부르는 쪽이 폐기 키 목록(src/revocations.ts)에도 적는다.
 export function revokeKey(
   db: Database.Database,
   name: string,

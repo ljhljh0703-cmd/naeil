@@ -4,7 +4,7 @@
 $ErrorActionPreference = 'Continue'
 
 $rel = Join-Path $Current 'RELEASE'
-if (Test-Path $rel) { Write-Host ("판:        {0}" -f (Get-Content $rel -Raw).Trim()) } else { Write-Host '판:        없음 (deploy.ps1 을 먼저)' }
+if (Test-Path $rel) { Write-Host ("릴리스:    {0}" -f (Get-Content $rel -Raw).Trim()) } else { Write-Host '릴리스:    없음 (deploy.ps1 을 먼저)' }
 Write-Host ("자료:      {0} ({1})" -f $Db, $(if (Test-Path $Db) { '있음' } else { '없음' }))
 foreach ($name in @($TaskServer, $TaskBackup, $TaskImport)) {
   $t = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
@@ -28,7 +28,7 @@ if (Test-Path $drill) {
   $d = Get-Content $drill -Raw -Encoding UTF8 | ConvertFrom-Json
   Write-Host ("복원 연습: {0}" -f $(if ($d.ok) { '통과' } else { "실패 ($drill)" }))
 }
-Write-Host ("폐기 명부: {0}" -f $(if (Test-Path (Join-Path $AppHome 'revoked-keys.json')) { '있음' } else { '없음' }))
+Write-Host ("폐기 키 목록: {0}" -f $(if (Test-Path (Join-Path $AppHome 'revoked-keys.json')) { '있음' } else { '없음' }))
 Show-SleepWarning
 $ts = Find-Tailscale
 if ($ts) {

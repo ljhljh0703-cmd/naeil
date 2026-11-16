@@ -73,12 +73,12 @@ export async function run({ page, ok, api, until, base, out }) {
     "저장하면 상세 제목이 바뀜",
   );
 
-  // 4. 상태 바꾸기: 시작 → 끝냄
+  // 4. 상태 바꾸기: 시작 → 완료
   const chip = () => p.evaluate(() => document.querySelector(".detail .meta .chip")?.textContent);
   await p.locator(".detail .d-actions button", { hasText: "시작" }).click();
-  ok(await until(async () => (await chip()) === "하는 중"), "시작 → 하는 중");
-  await p.locator(".detail .d-actions button", { hasText: "끝냄" }).click();
-  ok(await until(async () => (await chip()) === "끝"), "끝냄 → 끝");
+  ok(await until(async () => (await chip()) === "진행 중"), "시작 → 진행 중");
+  await p.locator(".detail .d-actions button", { hasText: "완료" }).click();
+  ok(await until(async () => (await chip()) === "완료"), "완료 누름 → 완료");
   await p.screenshot({ path: `${out}/basics-1440.png` });
 
   // 5. 새로고침과 다시 열기
@@ -88,7 +88,7 @@ export async function run({ page, ok, api, until, base, out }) {
     (await p.locator("#detail-title").textContent()) === "이름 바꾼 작업",
     "새로고침해도 이름 유지, 열린 상세도 유지",
   );
-  ok((await p.locator(".detail .meta .chip").textContent()) === "끝", "새로고침해도 상태 유지");
+  ok((await p.locator(".detail .meta .chip").textContent()) === "완료", "새로고침해도 상태 유지");
   await ctx.close();
   const again = await page();
   await again.p.goto(base);
@@ -119,7 +119,7 @@ export async function run({ page, ok, api, until, base, out }) {
   await m.p.waitForFunction(() => !document.querySelector("[role=alert]"));
   ok(
     (await api("GET", `/v1/tasks/${taskId}`)).json.status === "done",
-    "끊긴 동안 누른 것은 저장되지 않음 (상태 그대로 끝)",
+    "끊긴 동안 누른 것은 저장되지 않음 (상태 그대로 완료)",
   );
   ok(
     await m.p.evaluate(() => document.documentElement.scrollWidth <= 390),

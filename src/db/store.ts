@@ -8,7 +8,7 @@ export const BLOCKED_REASONS = ["my_decision", "ai_working", "external", "tech"]
 export type Status = (typeof STATUSES)[number];
 export type BlockedReason = (typeof BLOCKED_REASONS)[number];
 
-// 누가 바꿨나. actor = 출입증이 정한 도구 이름, session = 세션 이름표(선택)
+// 누가 바꿨나. actor = API 키가 정한 도구 이름, session = 세션 이름표(선택)
 export type ActorKind = "human" | "ai" | "ci";
 export type Who = string | { actor: string; session?: string | null; kind?: ActorKind | null };
 
@@ -36,7 +36,7 @@ export type Milestone = {
   deleted_at: string | null;
   // 프로젝트와 같이 휴지통에 들어갔으면 그 프로젝트 번호 (004)
   trashed_with?: string | null;
-  // 이 마일스톤이 끝났다고 볼 기준 (007, 이어하기 한 장의 「목표」)
+  // 이 마일스톤이 끝났다고 볼 기준 (007, 인수인계 문서의 「목표」)
   done_when?: string | null;
 };
 
@@ -61,7 +61,7 @@ export type Task = {
   updated_at: string;
   deleted_at: string | null;
   trashed_with?: string | null;
-  // 006: 작가 몫(author)인가 AI 몫(ai)인가, 가져온 일의 원문 주소
+  // 006: 작가 담당(author)인가 AI 담당(ai)인가, 가져온 일의 원문 주소
   owner?: Owner;
   source_url?: string | null;
   source_seen?: string | null;
@@ -92,9 +92,9 @@ export type DecisionAsk = {
 };
 
 // 기능 스위치 (M1-4). 처음에는 모두 켜짐 (작가 결정 2026-11-13 「셋 다 켜짐」).
-// 스위치는 화면만 숨긴다. 경계 규칙(사람 확인 대기, 검증됨은 전용 출입증만)은 스위치와 무관하게 늘 적용
+// 스위치는 화면만 숨긴다. 경계 규칙(사람 확인 대기, 검증됨은 전용 API 키만)은 스위치와 무관하게 늘 적용
 export const SWITCHES = {
-  handoff: "이어하기",
+  handoff: "인수인계 문서",
 } as const;
 export type SwitchName = keyof typeof SWITCHES;
 export type Setting = {
@@ -124,7 +124,7 @@ export type ImportItem = {
   title: string;
   state: "open" | "done";
   owner: Owner;
-  decision?: boolean; // 작가가 정할 일이면 「내 결정 기다림」으로, 결정함에 질문을 남김
+  decision?: boolean; // 작가가 정할 일이면 「내 결정 대기」로, 결정함에 질문을 남김
   options?: string[];
   recommended?: string | null;
   basis?: string | null;
@@ -562,7 +562,7 @@ export class Store {
           utc(input.dueAt),
           input.source ?? "direct",
           input.sourceRef ?? null,
-          // 직접 쓴 것이 아니면(깃허브 등에서 가져옴) 보내는 쪽이 빼도 서버가 늘 바깥 글로 표시 (M1-7)
+          // 직접 쓴 것이 아니면(깃허브 등에서 가져옴) 보내는 쪽이 빼도 서버가 늘 외부 입력로 표시 (M1-7)
           input.externalText || (input.source ?? "direct") !== "direct" ? 1 : 0,
           input.body ?? null,
           t,
@@ -707,7 +707,7 @@ export class Store {
       throw new RuleViolation("blocked-done", "끝난 일에는 멈춘 이유를 붙이지 않는다");
     }
     if (heldBy !== undefined && reason !== "ai_working") {
-      throw new RuleViolation("held-by-not-ai", "잡은 세션은 「AI가 하는 중」일 때만");
+      throw new RuleViolation("held-by-not-ai", "잡은 세션은 「AI 작업 중」일 때만");
     }
     this.db.transaction(() => {
       this.bump(id, undefined, "blocked_reason = ?, held_by = ?", [reason, heldBy ?? null]);
@@ -740,7 +740,7 @@ export class Store {
     if (t.deleted_at && !this.getProject(t.project_id)) {
       throw new RuleViolation(
         "project-trashed",
-        "이 할 일의 프로젝트가 휴지통에 있음. 프로젝트를 되살리면 같이 돌아옴",
+        "이 할 일의 프로젝트가 휴지통에 있음. 프로젝트를 복원하면 같이 돌아옴",
       );
     }
     this.db.transaction(() => {
@@ -907,7 +907,7 @@ export class Store {
 
   // ── 결정함 (M1-4) ──
 
-  // 정할 것을 묻는다: 질문, 선택지, 추천, 근거. 할 일은 「내 결정 기다림」으로 멈춘다.
+  // 정할 것을 묻는다: 질문, 선택지, 추천, 근거. 할 일은 「내 결정 대기」로 멈춘다.
   // 이미 열린 질문이 있으면 그 질문을 고친다 (한 할 일에 열린 질문은 하나)
   askDecision(who: Who, taskId: string, ask: DecisionAsk): void {
     const { actor } = norm(who);
@@ -998,7 +998,7 @@ export class Store {
     );
   }
 
-  // 열린 질문 전부 + 최근 답 (화면의 결정함, 오늘 한 장)
+  // 열린 질문 전부 + 최근 답 (화면의 결정함, 오늘 요약)
   listDecisions(opts: { open?: boolean; limit?: number } = {}): Decision[] {
     return this.db
       .prepare(
@@ -1042,11 +1042,11 @@ export class Store {
 
   // 작가와 AI 모두 바꿀 수 있다 (작가 결정 2026-11-13 「AI도 바꿀 수 있게」). AI 는 이유 한 줄이 필수
   setSetting(who: Who, name: string, enabled: boolean, reason?: string | null): Setting {
-    if (!(name in SWITCHES)) throw new NotFound(`없는 스위치: ${name}`);
+    if (!(name in SWITCHES)) throw new NotFound(`없는 기능 설정: ${name}`);
     const { actor, kind } = norm(who);
     const why = reason?.trim() || null;
     if (kind === "ai" && !why) {
-      throw new RuleViolation("reason-required", "AI 가 스위치를 바꿀 때는 이유 한 줄이 필요");
+      throw new RuleViolation("reason-required", "AI 가 기능 설정을 바꿀 때는 이유 한 줄이 필요");
     }
     this.db
       .prepare(
@@ -1061,7 +1061,7 @@ export class Store {
 
   // ── 날짜별 사용 기록 (M1-5) ──
 
-  // 사람 출입증으로 부른 그날 첫 시각만 남긴다 (이미 있으면 그대로)
+  // 사람 API 키로 부른 그날 첫 시각만 남긴다 (이미 있으면 그대로)
   markOpened(day: string): void {
     this.db
       .prepare(
@@ -1118,7 +1118,7 @@ export class Store {
 
   // ── 변경 기록 ──
 
-  // 거르기 (M1-7): 누가, 어떤 종류의 출입증이, 어느 항목을, 어느 날부터 어느 날까지 (한국 날짜)
+  // 거르기 (M1-7): 누가, 어떤 종류의 API 키가, 어느 항목을, 어느 날부터 어느 날까지 (한국 날짜)
   listChanges(filter: ChangeFilter = {}): ChangeRow[] {
     const where = ["workspace_id = ?"];
     const args: unknown[] = [this.workspace];

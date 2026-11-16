@@ -21,12 +21,12 @@ const open = (t: Task) => t.status !== "done" && !t.deleted_at;
 
 // 지금 할 것 1개 (작가 결정 2026-10-25). 내가 직접 해야 하는 일 중
 //   ① 하던 중인 것 ② 마감 가까운 것 ③ 오래된 것
-// 「오늘은 이거」로 고정하면 그게 먼저, 「건너뛰기」 한 것은 그날 하루 뺀다.
+// 「오늘 고정」로 고정하면 그게 먼저, 「건너뛰기」 한 것은 그날 하루 뺀다.
 export function pickNow(
   tasks: Task[],
   opts: { skipped?: ReadonlySet<string>; pinnedId?: string | null } = {},
 ): Task | null {
-  // AI 몫(가져온 깃허브 이슈 등)은 후보에서 뺀다 (작가 결정 2026-11-13 「AI 몫으로」)
+  // AI 담당(가져온 깃허브 이슈 등)은 후보에서 뺀다 (작가 결정 2026-11-13 「AI 몫으로」)
   const mine = tasks.filter((t) => open(t) && !t.blocked_reason && t.owner !== "ai");
   const pinned = mine.find((t) => t.id === opts.pinnedId);
   if (pinned) return pinned;
@@ -43,7 +43,7 @@ export function pickNow(
   return rest[0] ?? null;
 }
 
-// 내가 정할 것 = 「내 결정 기다림」 모음
+// 내가 정할 것 = 「내 결정 대기」 모음
 export function waitingOnMe(tasks: Task[]): Task[] {
   return tasks.filter((t) => open(t) && t.blocked_reason === "my_decision");
 }
