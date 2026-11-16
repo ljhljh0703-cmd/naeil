@@ -5,7 +5,7 @@
 ## 지금 있는 장치 (단계 1)
 | 장치 | 파일 | 하는 일 |
 |---|---|---|
-| 버전 고정 | `.node-version` | 내 맥 · CI(CI) · 나중 컨테이너가 같은 Node 를 쓴다 |
+| 버전 고정 | `.node-version` | 내 맥 · CI · 나중 컨테이너가 같은 Node 를 쓴다 |
 | 설치 막기 | `.npmrc` `engine-strict=true` + `package.json` `engines` | 낮은 Node 로는 `npm ci` 부터 실패 |
 | 켜기 막기 | `src/runtime.ts` | 줄별 최소 안전 버전보다 낮거나 지원이 끝난 줄이면 서버를 켜지 않음 |
 | 꾸러미 고정 | `package-lock.json` · `npm ci` | 꾸러미 버전과 지문을 잠근 그대로 설치 |
