@@ -21,8 +21,10 @@ describe("표 구조 변경", () => {
       "002_keys_idempotency_session",
       "003_entity_versions",
       "004_trashed_with",
+      "005_kinds_today",
     ]);
     expect(migrateUp(db)).toEqual([]); // 두 번 돌려도 그대로
+    expect(migrateDownOne(db)).toBe("005_kinds_today");
     expect(migrateDownOne(db)).toBe("004_trashed_with");
     expect(migrateDownOne(db)).toBe("003_entity_versions");
     expect(migrateDownOne(db)).toBe("002_keys_idempotency_session");
@@ -37,6 +39,7 @@ describe("표 구조 변경", () => {
       "002_keys_idempotency_session",
       "003_entity_versions",
       "004_trashed_with",
+      "005_kinds_today",
     ]);
   });
 
@@ -152,6 +155,7 @@ describe("예시 데이터", () => {
 describe("프로젝트·마일스톤 판 번호", () => {
   it("003은 기존 행과 연결을 보존하며 올리고 되돌리고 다시 올린다", () => {
     const db = freshDb();
+    expect(migrateDownOne(db)).toBe("005_kinds_today");
     expect(migrateDownOne(db)).toBe("004_trashed_with");
     expect(migrateDownOne(db)).toBe("003_entity_versions");
     const columns = (table: string) =>
@@ -159,16 +163,32 @@ describe("프로젝트·마일스톤 판 번호", () => {
     expect(columns("projects")).not.toContain("version");
     expect(columns("milestones")).not.toContain("version");
     const store = new Store(db);
-    const p = store.createProject("author", "기존 프로젝트");
-    const m = store.createMilestone("author", p, "기존 목표", "2026-11-02T09:00:00+09:00");
-    const t = store.createTask("author", { projectId: p, milestoneId: m, title: "기존 할 일" });
+    // 지금 저장소는 005 의 칸(기록의 종류)을 쓰므로, 003 이전 표에는 행을 직접 넣는다
+    const at = "2026-11-01T00:00:00.000Z";
+    const [p, m, t] = ["p-old", "m-old", "t-old"];
+    db.prepare("INSERT INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)").run(
+      p,
+      "기존 프로젝트",
+      at,
+      at,
+    );
+    db.prepare(
+      "INSERT INTO milestones (id, project_id, name, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(m, p, "기존 목표", "2026-11-02T00:00:00.000Z", at, at);
+    db.prepare(
+      "INSERT INTO tasks (id, project_id, milestone_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(t, p, m, "기존 할 일", at, at);
+    db.prepare(
+      "INSERT INTO change_log (at, actor, entity, entity_id, action) VALUES (?, 'author', 'task', ?, 'create')",
+    ).run(at, t);
     const before = {
       project: db.prepare("SELECT * FROM projects WHERE id = ?").get(p),
       milestone: db.prepare("SELECT * FROM milestones WHERE id = ?").get(m),
       task: store.getTask(t),
       changes: store.listChanges(),
     };
-    expect(migrateUp(db)).toEqual(["003_entity_versions", "004_trashed_with"]);
+    expect(migrateUp(db)).toEqual(["003_entity_versions", "004_trashed_with", "005_kinds_today"]);
+    expect(migrateDownOne(db)).toBe("005_kinds_today");
     expect(migrateDownOne(db)).toBe("004_trashed_with");
     expect(store.getProject(p)).toEqual({ ...(before.project as object), version: 1 });
     expect(store.getMilestone(m)).toEqual({ ...(before.milestone as object), version: 1 });
@@ -180,7 +200,7 @@ describe("프로젝트·마일스톤 판 번호", () => {
     expect(store.getTask(t)).toEqual(before.task);
     expect(store.listChanges()).toEqual(before.changes);
     expect(db.pragma("foreign_key_check")).toEqual([]);
-    expect(migrateUp(db)).toEqual(["003_entity_versions", "004_trashed_with"]);
+    expect(migrateUp(db)).toEqual(["003_entity_versions", "004_trashed_with", "005_kinds_today"]);
     expect(store.getProject(p)?.version).toBe(1);
     expect(store.getMilestone(m)?.version).toBe(1);
     expect(store.getTask(t)).toEqual({ ...(before.task as object), trashed_with: null });

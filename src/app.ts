@@ -9,12 +9,13 @@ import Fastify, {
   type FastifyRequest,
   type RouteHandlerMethod,
 } from "fastify";
-import { findKey, type KeyInfo } from "./auth.js";
+import { findKey, type KeyInfo, type KeyKind } from "./auth.js";
 import { backupState } from "./backup-files.js";
 import { decodeCursor, encodeCursor } from "./cursor.js";
 import { openDb } from "./db/connection.js";
 import {
   type BlockedReason,
+  type ChangeFilter,
   type ChangeRow,
   type Milestone,
   type MilestonePatch,
@@ -30,6 +31,7 @@ import { type DbState, dbChecker, type WebState } from "./health.js";
 import { IdempotencyStore, requestHash } from "./idempotency.js";
 import { VERSION } from "./paths.js";
 import { routeSchema, specSchemaBundle, toFastifyPath } from "./spec.js";
+import { dueSoon, kstDate, pickNow, waitingOnMe } from "./today.js";
 
 // 옛 방식(CommonJS) 꾸러미라 .default 로 꺼낸다
 const Ajv = AjvModule.default;
@@ -40,7 +42,7 @@ export const TAGLINE = "내 일은 naeil에서";
 declare module "fastify" {
   interface FastifyRequest {
     key: KeyInfo | null;
-    who: { actor: string; session: string | null };
+    who: { actor: string; session: string | null; kind: KeyKind };
   }
 }
 
@@ -101,6 +103,7 @@ export const toChange = (c: ChangeRow) => ({
   id: c.id,
   at: c.at,
   actor: c.actor,
+  actorKind: c.actor_kind,
   session: c.session,
   entity: c.entity,
   entityId: c.entity_id,
@@ -219,7 +222,11 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
   app.addHook("preHandler", async (req) => {
     if (!req.key) return;
     const session = req.headers["x-naeil-session"];
-    req.who = { actor: req.key.name, session: typeof session === "string" ? session : null };
+    req.who = {
+      actor: req.key.name,
+      session: typeof session === "string" ? session : null,
+      kind: req.key.kind,
+    };
   });
   app.addHook("onSend", async (_req, reply) => {
     if (reply.statusCode === 401) reply.header("WWW-Authenticate", "Bearer");
@@ -479,21 +486,50 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 
   // ── 변경 기록 (읽기만) ──
   route("GET", "/v1/changes", async (req) => {
-    const q = req.query as { actor?: string; limit: number; cursor?: string };
-    const before = q.cursor
-      ? decodeCursor<{ i: number }>(q.cursor, (v) => Number.isInteger(v?.i))
+    const { cursor, limit, ...filter } = req.query as ChangeFilter & {
+      limit: number;
+      cursor?: string;
+    };
+    const before = cursor
+      ? decodeCursor<{ i: number }>(cursor, (v) => Number.isInteger(v?.i))
       : undefined;
-    const rows = storeFor(req).listChanges({
-      actor: q.actor,
-      limit: q.limit + 1,
-      beforeId: before?.i,
-    });
+    const q = { limit };
+    const rows = storeFor(req).listChanges({ ...filter, limit: limit + 1, beforeId: before?.i });
     const page = rows.slice(0, q.limit);
     const last = page.at(-1);
     return {
       items: page.map(toChange),
       nextCursor: rows.length > q.limit && last ? encodeCursor({ i: last.id }) : null,
     };
+  });
+
+  // ── 오늘 (M1-7): 지금 할 것, 내가 정할 것, 마감 가까운 것을 서버가 계산 ──
+  const todayBody = (req: FastifyRequest, day: string) => {
+    const s = storeFor(req);
+    const tasks = s.listTasks();
+    const state = s.getDay(day);
+    const now = pickNow(tasks, { skipped: new Set(state.skipped), pinnedId: state.pinnedTaskId });
+    return {
+      day,
+      now: now ? toTask(now) : null,
+      pinnedTaskId: state.pinnedTaskId,
+      skipped: state.skipped,
+      waitingOnMe: waitingOnMe(tasks).map(toTask),
+      dueSoon: dueSoon(tasks, clock()).map(toTask),
+    };
+  };
+
+  route("GET", "/v1/today", async (req) => {
+    const q = req.query as { day?: string };
+    return todayBody(req, q.day ?? kstDate(clock()));
+  });
+
+  route("PUT", "/v1/today", async (req) => {
+    const q = req.query as { day?: string };
+    const day = q.day ?? kstDate(clock());
+    const b = req.body as { pinnedTaskId: string | null; skipped: string[] };
+    storeFor(req).setDay(day, b);
+    return todayBody(req, day);
   });
 
   // ── 화면 ──

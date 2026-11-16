@@ -1,16 +1,20 @@
 // 출입증 명령 (작가 결정 2026-10-25: 도구별 출입증 3장)
-//   npm run key -- new author     화면용
-//   npm run key -- new claude     Claude 세션용
-//   npm run key -- new codex      Codex 세션용
+//   npm run key -- new author     화면용 (사람)
+//   npm run key -- new claude     Claude 세션용 (AI)
+//   npm run key -- new codex      Codex 세션용 (AI)
+//   npm run key -- new ci-naeil --kind ci   그 밖의 이름은 종류를 밝힌다: human, ai, ci (자동 검사)
 //   npm run key -- revoke claude  폐기 (잃어버렸거나 바꿀 때)
 //   npm run key -- list           목록 (키 원문은 다시 못 봄)
-import { createKey, listKeys, revokeKey } from "../auth.js";
+import { createKey, KEY_KINDS, type KeyKind, KNOWN_KINDS, listKeys, revokeKey } from "../auth.js";
 import { loadConfig } from "../config.js";
 import { openDb } from "../db/connection.js";
 import { loadEnv } from "../paths.js";
 import { addToLedger, ledgerPathFor, syncRevocations } from "../revocations.js";
 
-const [cmd, name] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const kindAt = args.indexOf("--kind");
+const kindArg = kindAt >= 0 ? args.splice(kindAt, 2)[1] : undefined;
+const [cmd, name] = args;
 loadEnv();
 const config = loadConfig();
 console.error(`자료 파일: ${config.dbPath}`);
@@ -19,14 +23,23 @@ const ledger = ledgerPathFor(config.dbPath);
 syncRevocations(db, ledger);
 
 function usage(): never {
-  console.error("쓰는 법: npm run key -- new <이름> | revoke <이름> | list");
+  console.error("쓰는 법: npm run key -- new <이름> [--kind human|ai|ci] | revoke <이름> | list");
   process.exit(1);
 }
 
 try {
   if (cmd === "new" && name) {
-    const key = createKey(db, name);
-    console.log(`\n「${name}」 출입증 (지금 한 번만 보입니다. 바로 복사해 두세요)\n\n  ${key}\n`);
+    const kind = (kindArg ?? KNOWN_KINDS[name]) as KeyKind | undefined;
+    if (!kind || !KEY_KINDS.includes(kind)) {
+      console.error(
+        `「${name}」 은 종류를 밝혀 주세요: --kind human (사람) | ai (AI 세션) | ci (자동 검사)`,
+      );
+      process.exit(1);
+    }
+    const key = createKey(db, name, "me", kind);
+    console.log(
+      `\n「${name}」 출입증, 종류 ${kind} (지금 한 번만 보입니다. 바로 복사해 두세요)\n\n  ${key}\n`,
+    );
     console.log(
       "어디에 넣나: 화면은 첫 화면의 출입증 칸, AI 세션은 그 도구 설정 파일의 NAEIL_KEY.",
     );
@@ -45,7 +58,7 @@ try {
   } else if (cmd === "list") {
     for (const k of listKeys(db)) {
       console.log(
-        `${k.name.padEnd(10)} 만든 날 ${k.created_at}  ${k.revoked_at ? `폐기 ${k.revoked_at}` : "사용 중"}`,
+        `${k.name.padEnd(10)} ${k.kind.padEnd(5)} 만든 날 ${k.created_at}  ${k.revoked_at ? `폐기 ${k.revoked_at}` : "사용 중"}`,
       );
     }
   } else {

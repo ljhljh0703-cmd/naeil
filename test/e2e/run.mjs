@@ -19,7 +19,7 @@ if (!existsSync(entry) || !existsSync(join(root, "web", "dist", "index.html"))) 
   process.exit(1);
 }
 
-const ALL = ["basics", "board", "panel", "phone", "trash"];
+const ALL = ["basics", "board", "panel", "phone", "trash", "today"];
 const pick = process.argv.slice(2);
 const flows = pick.length > 0 ? pick : ALL;
 
@@ -44,7 +44,7 @@ async function startServer(name) {
     NAEIL_SELF_CHECK_SECONDS: "0",
   };
   // 시험용 출입증 (시험 자료 안에서만)
-  const k = spawnSync(process.execPath, [keyCli, "new", "e2e"], {
+  const k = spawnSync(process.execPath, [keyCli, "new", "e2e", "--kind", "human"], {
     cwd: work,
     env,
     encoding: "utf8",

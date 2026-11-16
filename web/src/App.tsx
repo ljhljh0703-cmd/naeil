@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   type ApiTask,
@@ -8,6 +8,7 @@ import {
   type Milestone,
   type Project,
   setKey,
+  type Today,
 } from "./api.js";
 import { type ActFn, CardList, DetailPanel, type OpenFn } from "./ItemViews.js";
 import { newKey } from "./ids.js";
@@ -23,7 +24,7 @@ import {
 } from "./items.js";
 import { dLabel, todayFmt } from "./labels.js";
 import { Board } from "./MilestoneBoard.js";
-import { dDay, dueFromKstDate, dueSoon, kstDate, pickNow, waitingOnMe } from "./today.js";
+import { dDay, dueFromKstDate, kstDate } from "./today.js";
 
 type Mode = "board" | "focus";
 type Page = "today" | "milestones";
@@ -42,21 +43,6 @@ function save(key: string, value: unknown) {
   } catch {
     // 저장이 막혀도 이번 창에서는 동작
   }
-}
-
-// 오늘 하루 건너뛴 것·고정한 것 (이 브라우저에만)
-function useDayState() {
-  const storeKey = `naeil.day.${kstDate(new Date())}`;
-  const [state, setState] = useState(() =>
-    load<{ skipped: string[]; pinned: string | null }>(storeKey, { skipped: [], pinned: null }),
-  );
-  return {
-    ...state,
-    save: (next: typeof state) => {
-      setState(next);
-      save(storeKey, next);
-    },
-  };
 }
 
 // 열린 항목은 주소에 담는다: ?open=task:… (패널) · &full=1 (페이지 하나로)
@@ -129,7 +115,16 @@ export function App() {
   const [open, setOpen] = useState(readUrl);
   const [openList, setOpenList] = useState<ItemRef[]>([]);
   const opener = useRef<HTMLElement | null>(null);
-  const day = useDayState();
+  // 오늘 화면의 재료는 서버가 계산한다 (M1-7). 고정과 건너뛰기도 서버에 날짜별로 남아 폰과 AI 도구도 같은 것을 본다
+  const [todayData, setToday] = useState<Today | null>(null);
+  const day = {
+    skipped: todayData?.skipped ?? [],
+    pinned: todayData?.pinnedTaskId ?? null,
+    save: (next: { skipped: string[]; pinned: string | null }) =>
+      void run(async () => {
+        setToday(await api.setToday({ pinnedTaskId: next.pinned, skipped: next.skipped }));
+      }),
+  };
 
   const setMode = (m: Mode) => {
     setModeState(m);
@@ -146,13 +141,15 @@ export function App() {
 
   const reload = useCallback(async () => {
     try {
-      const [p, t, c, gone] = await Promise.all([
+      const [p, t, c, gone, td] = await Promise.all([
         api.projects(),
         api.allTasks(),
         api.changes(),
         api.trashedProjects(),
+        api.today(),
       ]);
       const m = await api.allMilestones(p);
+      setToday(td);
       setProjects(p);
       setTrashedProjects(gone);
       setMilestones(m);
@@ -287,8 +284,10 @@ export function App() {
 
   const now = new Date();
   const ctx: Ctx = { tasks, changes, projects, milestones, now };
-  const skipped = useMemo(() => new Set(day.skipped), [day.skipped]);
-  const current = pickNow(tasks, { skipped, pinnedId: day.pinned });
+  // 서버가 고른 것을 화면이 가진 같은 할 일로 찾는다 (판 표시 등이 한 곳에서 오게)
+  const byIds = (list: { id: string }[] | undefined) =>
+    (list ?? []).map((x) => tasks.find((t) => t.id === x.id)).filter((t): t is ApiTask => !!t);
+  const current = byIds(todayData?.now ? [todayData.now] : [])[0] ?? null;
   const cards = (list: ApiTask[], quick?: (t: ApiTask) => Action | undefined): CardModel[] =>
     list
       .map((t): CardModel | null => {
@@ -297,11 +296,11 @@ export function App() {
       })
       .filter((c): c is CardModel => !!c);
 
-  const decideCards = cards(waitingOnMe(tasks) as ApiTask[], () => ({
+  const decideCards = cards(byIds(todayData?.waitingOnMe), () => ({
     id: "decided",
     label: "정했음",
   }));
-  const soonCards = cards(dueSoon(tasks, now) as ApiTask[]).map((c) => ({
+  const soonCards = cards(byIds(todayData?.dueSoon)).map((c) => ({
     ...c,
     status: undefined,
   }));
