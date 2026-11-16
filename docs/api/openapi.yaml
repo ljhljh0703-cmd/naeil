@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: naeil API
-  version: 0.1.2
+  version: 0.2.0
   summary: 내 일은 naeil에서
   description: |
     내일은내일(naeil) 할 일 API 명세서 v1 (작가 결정 4곳 반영 2026-10-25, 코드는 1-2단계).
@@ -1119,6 +1119,10 @@ components:
           description: 열린 질문 (결정함)
           type: array
           items: { $ref: "#/components/schemas/Decision" }
+        laterCount:
+          description: 뒤 마일스톤(다음 단계)이라 오늘 목록에서 뺀 열린 할 일 수. 마일스톤 화면에는 다 보임
+          type: integer
+          minimum: 0
         notices:
           description: AI 가 끈 스위치. 다시 켤 때까지 오늘 화면 맨 위에
           type: array

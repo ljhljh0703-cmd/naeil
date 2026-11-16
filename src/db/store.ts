@@ -131,6 +131,7 @@ export type ImportItem = {
   dueAt?: string | null;
   body?: string | null;
   url?: string | null;
+  milestone?: string | null; // 원장의 「마일스톤」 칸. 없으면 만들고, 있으면 그 마일스톤에 넣음
 };
 export type ImportResult = {
   created: number;
@@ -408,9 +409,41 @@ export class Store {
     return this.db
       .prepare(
         `SELECT * FROM milestones WHERE project_id = ? AND workspace_id = ? AND deleted_at IS NULL
-         ORDER BY due_at IS NULL, due_at, created_at, id`,
+         ORDER BY due_at IS NULL, due_at, created_at, rowid`,
       )
       .all(projectId, this.workspace) as Milestone[];
+  }
+
+  // 가져오기용: 같은 이름의 마일스톤이 있으면 그것, 없으면 새로 (한 묶음 저장 안에서 부름)
+  ensureMilestone(who: Who, projectId: string, name: string): string {
+    const found = this.db
+      .prepare(
+        "SELECT id FROM milestones WHERE workspace_id = ? AND project_id = ? AND name = ? AND deleted_at IS NULL ORDER BY created_at LIMIT 1",
+      )
+      .get(this.workspace, projectId, name) as { id: string } | undefined;
+    return found?.id ?? this.createMilestone(who, projectId, name);
+  }
+
+  // 오늘 화면에 올릴 할 일: 프로젝트마다 「지금 단계」(열린 일이 남은 첫 마일스톤) 뒤의 마일스톤에 든 열린 일은 뺀다.
+  // 마일스톤 순서는 보드와 같음 (목표 날짜, 만든 순서). 마일스톤 없는 일과 오늘 고정한 일은 늘 보임 (작가 결정 2026-11-16 「오늘 화면에서 다음 판 숨기기」)
+  todayTasks(pinnedId?: string | null): { tasks: Task[]; later: number } {
+    const tasks = this.listTasks();
+    const ms = this.db
+      .prepare(
+        `SELECT id, project_id FROM milestones WHERE workspace_id = ? AND deleted_at IS NULL
+         ORDER BY project_id, due_at IS NULL, due_at, created_at, rowid`,
+      )
+      .all(this.workspace) as { id: string; project_id: string }[];
+    const open = new Set(tasks.filter((t) => t.status !== "done" && t.milestone_id).map((t) => t.milestone_id));
+    const later = new Set<string>();
+    const seenCurrent = new Set<string>();
+    for (const m of ms) {
+      if (seenCurrent.has(m.project_id)) later.add(m.id);
+      else if (open.has(m.id)) seenCurrent.add(m.project_id);
+    }
+    const hidden = (t: Task) =>
+      t.status !== "done" && t.id !== pinnedId && t.milestone_id !== null && later.has(t.milestone_id);
+    return { tasks: tasks.filter((t) => !hidden(t)), later: tasks.filter(hidden).length };
   }
 
   updateMilestone(who: Who, id: string, patch: MilestonePatch, expectedVersion?: number): void {
@@ -747,7 +780,9 @@ export class Store {
           decision: !!it.decision,
           options: JSON.stringify(it.options ?? []),
           recommended: it.recommended ?? null,
+          milestone: it.milestone ?? null,
         };
+        const msId = it.milestone ? this.ensureMilestone(who, projectId, it.milestone) : null;
         const t = this.db
           .prepare("SELECT * FROM tasks WHERE workspace_id = ? AND source = ? AND source_ref = ?")
           .get(this.workspace, source, it.ref) as Task | undefined;
@@ -762,6 +797,7 @@ export class Store {
             body: it.body ?? undefined,
             owner: it.owner,
             sourceUrl: it.url ?? undefined,
+            milestoneId: msId ?? undefined,
           });
           const extra = it.state === "done" ? ", status = 'done'" : "";
           this.bump(id, undefined, `source_seen = ?${extra}`, [JSON.stringify(seen)]);
@@ -798,6 +834,12 @@ export class Store {
         field("body", "body", t.body);
         field("source_url", "url", t.source_url ?? null);
         field("owner", "owner", t.owner, "owner");
+        // 마일스톤: 출처에서 바뀐 때만 옮김 (작업판에서 옮긴 것은 덮지 않음)
+        if (moved("milestone") && msId !== t.milestone_id) {
+          sets.push("milestone_id = ?");
+          args.push(msId);
+          changed.milestone = it.milestone ?? null;
+        }
         let change = "update";
         if (moved("state") && seen.state === "done" && t.status !== "done") {
           sets.push("status = 'done'", "blocked_reason = NULL", "held_by = NULL");

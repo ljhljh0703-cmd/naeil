@@ -1002,3 +1002,10 @@ div.error {
 .demo-banner a {
   color: var(--accent);
 }
+
+/* 오늘 화면에서 뺀 다음 단계 수 (한 줄) */
+.later-note {
+  margin: 0 0 var(--s3);
+  font-size: var(--t-small);
+  color: var(--ink-2);
+}

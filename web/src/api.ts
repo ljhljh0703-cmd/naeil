@@ -177,6 +177,7 @@ export type Today = {
   dueSoon: ApiTask[];
   decisions?: Decision[];
   notices?: Notice[];
+  laterCount?: number;
 };
 
 export const api = {

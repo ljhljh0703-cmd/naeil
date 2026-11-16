@@ -43,7 +43,8 @@ export type SourceReport = {
 export const IMPORTER: Who = { actor: "import", session: null, kind: null };
 
 // ── vault 할 일 원장 ──
-// skills/vault-maintenance/naeil-source.json 모양: { 출처, 할일: [{ 번호, 제목, 몫, 종류, 상태, 마감?, 선택지?, 추천?, 근거?, 끝나면?, 메모? }] }
+// skills/vault-maintenance/naeil-source.json 모양: { 출처, 할일: [{ 번호, 제목, 몫, 종류, 상태, 마감?, 마일스톤?, 선택지?, 추천?, 근거?, 끝나면?, 메모? }] }
+// 마일스톤은 원장에 처음 나온 순서대로 만들어짐 (그 순서가 단계 순서)
 type LedgerItem = Record<string, unknown>;
 
 const DONE_STATES = new Set(["끝", "완료", "done"]);
@@ -86,6 +87,7 @@ export function parseVaultLedger(text: string): { source: string; items: ImportI
       dueAt: str(raw.마감) ? `${str(raw.마감)}T23:59:59+09:00` : null,
       body: lines.length ? lines.join("\n") : null,
       url: null,
+      milestone: str(raw.마일스톤) ? (str(raw.마일스톤) as string).slice(0, 200) : null,
     });
   }
   const name = slug(source);
@@ -308,9 +310,9 @@ function applyRequest(store: Store, req: Record<string, unknown>, file: string):
 // ── 오늘 한 장 (vault 에 씀. 클라우드 세션이 읽음) ──
 
 export function todaySheet(store: Store, now: Date): string {
-  const tasks = store.listTasks();
   const day = kstDate(now);
   const state = store.getDay(day);
+  const { tasks, later } = store.todayTasks(state.pinnedTaskId);
   const pick = pickNow(tasks, { skipped: new Set(state.skipped), pinnedId: state.pinnedTaskId });
   const projects = new Map(store.listProjects().map((p) => [p.id, p.name]));
   const line = (t: Task) => {
@@ -348,6 +350,7 @@ export function todaySheet(store: Store, now: Date): string {
     `## AI 몫 열린 것 ${ai.length}개`,
     ...ai.slice(0, 20).map(line),
     ai.length > 20 ? `- 그 밖 ${ai.length - 20}개` : "",
+    later ? `\n다음 단계(뒤 마일스톤) 할 일 ${later}개는 숨김. 마일스톤 화면에는 다 보임` : "",
     "",
     "## 요청 파일 모양 (받는 폴더에 .json 하나씩)",
     "```json",
