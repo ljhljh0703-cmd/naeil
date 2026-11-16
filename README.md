@@ -49,6 +49,10 @@
 | M3 게임 운영 연결 | 작업에서 원본 운영 이슈와 수정 검증 결과까지 봄 | 다음 판 |
 | M4 나중 | 집 밖 백업, 조직마다 맞춰 바꾸기, 맥 앱, 스킬 상점 | 다음 판 |
 
+## 더 보기
+- [어떻게 만들었나](docs/how-it-was-built.md): 작가가 정하고, 클라우드 Claude 가 만들고, 작가 컴퓨터의 Codex 가 확인하는 한 바퀴와 실제 예
+- [비슷한 도구와 비교](docs/research/similar-tools.md): Backlog.md, agents-board, agendum, handover 와 겹치는 것, 남는 자리
+
 ## 처음 한 번
 ```bash
 cd naeil
