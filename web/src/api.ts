@@ -1,5 +1,6 @@
 // 화면 → 서버. 화면은 「author」 출입증으로 부른다.
 
+import { demoCall, isDemo } from "./demo-hook.js";
 import { newKey } from "./ids.js";
 import type { BlockedReason, Status, Task } from "./today.js";
 
@@ -89,6 +90,8 @@ export type Change = {
 const KEY_STORE = "naeil.key";
 
 export function getKey(): string | null {
+  // 시연판은 출입증 없이 바로 열림
+  if (isDemo) return "demo";
   try {
     return localStorage.getItem(KEY_STORE);
   } catch {
@@ -126,16 +129,24 @@ async function call<T>(
 ) {
   let res: Response;
   try {
-    res = await fetch(url, {
-      method,
-      headers: {
-        authorization: `Bearer ${getKey() ?? ""}`,
-        ...(body !== undefined ? { "content-type": "application/json" } : {}),
-        ...extra,
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  } catch {
+    if (demoCall) {
+      const r = await demoCall(method, url, body, extra);
+      res = new Response(r.status === 204 ? null : JSON.stringify(r.json), { status: r.status });
+    } else
+      res = await fetch(url, {
+        method,
+        headers: {
+          authorization: `Bearer ${getKey() ?? ""}`,
+          ...(body !== undefined ? { "content-type": "application/json" } : {}),
+          ...extra,
+        },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+  } catch (err) {
+    if (demoCall) {
+      console.error(err);
+      throw new ApiError(500, "시연판 안에서 오류가 났습니다. 새로 고쳐 주세요.");
+    }
     throw new ApiError(0, OFFLINE);
   }
   if (!res.ok) {

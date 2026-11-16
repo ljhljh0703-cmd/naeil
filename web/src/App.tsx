@@ -12,6 +12,7 @@ import {
   setKey,
   type Today,
 } from "./api.js";
+import { isDemo } from "./demo-hook.js";
 import { type ActFn, CardList, DetailPanel, type OpenFn } from "./ItemViews.js";
 import { newKey } from "./ids.js";
 import {
@@ -408,29 +409,41 @@ export function App() {
   );
 
   const header = (
-    <header className="top">
-      <div>
-        <h1>내일은내일</h1>
-        <p className="tagline">내 일은 naeil에서</p>
-      </div>
-      <div className="top-right">
-        <nav aria-label="화면">
-          <fieldset className="seg">
-            <button type="button" aria-pressed={page === "today"} onClick={() => setPage("today")}>
-              오늘
-            </button>
-            <button
-              type="button"
-              aria-pressed={page === "milestones"}
-              onClick={() => setPage("milestones")}
-            >
-              마일스톤
-            </button>
-          </fieldset>
-        </nav>
-        <p className="date">{todayFmt.format(now)}</p>
-      </div>
-    </header>
+    <>
+      {isDemo && (
+        <p className="demo-banner">
+          시연판입니다. 예시 자료로 돌아가고, 새로 고치면 처음으로 돌아갑니다.{" "}
+          <a href="https://github.com/ljhljh0703-cmd/naeil">내 컴퓨터에 설치하는 법</a>
+        </p>
+      )}
+      <header className="top">
+        <div>
+          <h1>내일은내일</h1>
+          <p className="tagline">내 일은 naeil에서</p>
+        </div>
+        <div className="top-right">
+          <nav aria-label="화면">
+            <fieldset className="seg">
+              <button
+                type="button"
+                aria-pressed={page === "today"}
+                onClick={() => setPage("today")}
+              >
+                오늘
+              </button>
+              <button
+                type="button"
+                aria-pressed={page === "milestones"}
+                onClick={() => setPage("milestones")}
+              >
+                마일스톤
+              </button>
+            </fieldset>
+          </nav>
+          <p className="date">{todayFmt.format(now)}</p>
+        </div>
+      </header>
+    </>
   );
 
   const modeBar = (
@@ -708,16 +721,18 @@ export function App() {
               {st.label} {st.enabled ? "켜짐" : "꺼짐"}
             </button>
           ))}
-          <button
-            type="button"
-            className="ghost small"
-            onClick={() => {
-              setKey(null);
-              setHasKey(false);
-            }}
-          >
-            출입증 바꾸기
-          </button>
+          {!isDemo && (
+            <button
+              type="button"
+              className="ghost small"
+              onClick={() => {
+                setKey(null);
+                setHasKey(false);
+              }}
+            >
+              출입증 바꾸기
+            </button>
+          )}
         </footer>
       </main>
       {panel}

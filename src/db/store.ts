@@ -1,6 +1,6 @@
 // 할 일 저장소. 바꿀 때마다 변경 기록에 한 줄 남긴다.
-import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
+// 노드 전용 꾸러미를 들이지 않는다 (브라우저 시연판이 이 파일을 그대로 씀). 아이디는 전역 crypto 로
 import { BadInput, Duplicate, NotFound, RuleViolation, VersionMismatch } from "../errors.js";
 
 export const STATUSES = ["todo", "doing", "done"] as const;
@@ -248,7 +248,7 @@ export class Store {
   // ── 프로젝트 ──
 
   createProject(who: Who, name: string): string {
-    const id = randomUUID();
+    const id = crypto.randomUUID();
     const t = this.now();
     this.db.transaction(() => {
       this.db
@@ -376,7 +376,7 @@ export class Store {
   createMilestone(who: Who, projectId: string, name: string, dueAt?: string | null): string {
     return this.db.transaction(() => {
       this.mustProject(projectId);
-      const id = randomUUID();
+      const id = crypto.randomUUID();
       const t = this.now();
       const due = utc(dueAt);
       this.db
@@ -483,7 +483,7 @@ export class Store {
     if (input.milestoneId && !this.milestoneInProject(input.milestoneId, input.projectId)) {
       throw new BadInput("milestoneId 가 이 프로젝트의 마일스톤이 아님");
     }
-    const id = randomUUID();
+    const id = crypto.randomUUID();
     const t = this.now();
     // 할 일과 「누가 만들었나」 기록은 한 묶음. 기록이 실패하면 할 일도 남기지 않는다 (S1, 2026-11-05)
     this.db.transaction(() => {
@@ -752,7 +752,7 @@ export class Store {
           .prepare("SELECT * FROM tasks WHERE workspace_id = ? AND source = ? AND source_ref = ?")
           .get(this.workspace, source, it.ref) as Task | undefined;
         if (!t) {
-          const id = randomUUID();
+          const id = crypto.randomUUID();
           this.insertTask(id, this.now(), {
             projectId,
             title: it.title,
@@ -892,7 +892,7 @@ export class Store {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
-            randomUUID(),
+            crypto.randomUUID(),
             this.workspace,
             taskId,
             question,
