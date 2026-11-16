@@ -76,7 +76,7 @@ cp -R dist migrations "$REL/"
 mkdir -p "$REL/docs/api" "$REL/web" "$REL/scripts"
 cp docs/api/openapi.yaml "$REL/docs/api/"
 cp -R web/dist "$REL/web/dist"
-cp scripts/smoke-dist.mjs "$REL/scripts/"
+cp scripts/smoke-dist.mjs scripts/wait-health.mjs "$REL/scripts/"
 # 꾸러미는 인터넷에서 다시 받지 않고 복사한 뒤 개발용만 뺀다 (사내망, 폐쇄망에서도 같은 방법)
 cp -R node_modules "$REL/node_modules"
 (cd "$REL" && npm prune --omit=dev --no-audit --no-fund >/dev/null)

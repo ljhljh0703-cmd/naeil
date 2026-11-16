@@ -8,6 +8,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { waitForHealth } from "./wait-health.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const entry = join(root, "dist", "server.js");
@@ -47,17 +48,14 @@ async function start(name, extraEnv = {}, { stdin = "ignore" } = {}) {
   const s = { name, child, base: `http://127.0.0.1:${port}`, dbPath, log: "" };
   child.stdout.on("data", (d) => (s.log += d));
   child.stderr.on("data", (d) => (s.log += d));
-  s.exited = new Promise((r) => child.once("exit", (code, signal) => r({ code, signal })));
+  s.exited = new Promise((r) => {
+    child.once("exit", (code, signal) => r({ code, signal }));
+    child.once("error", (error) => r({ code: null, signal: null, error: error.message }));
+  });
   servers.push(s);
-  for (let i = 0; i < 100; i++) {
-    if (child.exitCode !== null) return { ...s, health: null };
-    try {
-      return { ...s, health: await fetch(`${s.base}/health`) };
-    } catch {
-      await wait(100);
-    }
-  }
-  return { ...s, health: null };
+  const readiness = await waitForHealth(`${s.base}/health`, child);
+  console.log(`시작 확인 ${name}: ${readiness.elapsedMs}ms`);
+  return { ...s, ...readiness };
 }
 const exitWithin = (s, ms) => Promise.race([s.exited, wait(ms).then(() => null)]);
 // 윈도우는 끄라는 신호(SIGTERM)가 없고 열린 파일을 바꾸거나 지울 수 없다. 그 시험은 윈도우에서 건너뛴다
@@ -67,7 +65,7 @@ const skipped = [];
 try {
   // ── 1. 켜지고 기본이 도는가 ──
   const a = await start("basic");
-  check("저장소 밖 폴더에서 켜짐", a.health !== null, a.health ? "" : `꺼짐 (종료 코드 ${a.child.exitCode})`);
+  check("저장소 밖 폴더에서 켜짐", a.health !== null, a.detail);
   if (a.health) {
     const body = await a.health.json();
     check("상태 확인 200, 자료 읽힘", a.health.status === 200 && body.ok === true && body.checks?.db === "ok", JSON.stringify(body));
@@ -104,7 +102,7 @@ try {
     sup.child.stdin.end();
     const end = await exitWithin(sup, 5000);
     check("실행기 통로가 닫히면 정상 종료(0), 포트를 붙잡고 남지 않음", end?.code === 0, JSON.stringify(end));
-  } else check("실행기 아래 시험용 서버가 켜짐", false);
+  } else check("실행기 아래 시험용 서버가 켜짐", false, sup.detail);
 
   // ── 2. 켜진 채 자료 파일이 백업본으로 바뀌면 스스로 꺼짐 ──
   const b = WIN ? null : await start("replaced", { NAEIL_SELF_CHECK_SECONDS: "0.2" });
@@ -134,7 +132,7 @@ try {
     check("지운 자리에 빈 파일을 새로 만들지 않음", !existsSync(c.dbPath));
   } else check("자료 파일 지움 시험용 서버가 켜짐", false);
 } finally {
-  for (const s of servers) if (s.child.exitCode === null && s.child.signalCode === null) s.child.kill("SIGKILL");
+  for (const s of servers) if (s.child.pid && s.child.exitCode === null && s.child.signalCode === null) s.child.kill("SIGKILL");
   await Promise.all(servers.map((s) => s.exited));
   rmSync(work, { recursive: true, force: true });
 }

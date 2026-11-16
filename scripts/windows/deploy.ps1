@@ -66,7 +66,7 @@ Copy-Item -Recurse dist, migrations -Destination $Rel
 New-Item -ItemType Directory -Force -Path (Join-Path $Rel 'docs\api'), (Join-Path $Rel 'web'), (Join-Path $Rel 'scripts') | Out-Null
 Copy-Item docs\api\openapi.yaml -Destination (Join-Path $Rel 'docs\api')
 Copy-Item -Recurse web\dist -Destination (Join-Path $Rel 'web\dist')
-Copy-Item scripts\smoke-dist.mjs, scripts\service.mjs, scripts\node-ok.mjs -Destination (Join-Path $Rel 'scripts')
+Copy-Item scripts\smoke-dist.mjs, scripts\wait-health.mjs, scripts\service.mjs, scripts\node-ok.mjs -Destination (Join-Path $Rel 'scripts')
 # 꾸러미는 인터넷에서 다시 받지 않고 복사한 뒤 개발용만 뺀다 (사내망, 폐쇄망에서도 같은 방법)
 # robocopy 는 긴 경로도 복사한다. 8 미만이 성공
 & robocopy node_modules (Join-Path $Rel 'node_modules') /E /NFL /NDL /NJH /NJS /NP | Out-Null
