@@ -16,7 +16,6 @@ import { openDb } from "./db/connection.js";
 import {
   type BlockedReason,
   type ChangeFilter,
-  type ChangeRow,
   type Decision,
   type Milestone,
   type MilestonePatch,
@@ -40,8 +39,9 @@ import { buildHandoff } from "./handoff.js";
 import { type DbState, dbChecker, type WebState } from "./health.js";
 import { IdempotencyStore, requestHash } from "./idempotency.js";
 import { VERSION } from "./paths.js";
+import { buildToday, etag, toChange, toDecision, toMilestone, toProject, toTask } from "./shape.js";
 import { routeSchema, specSchemaBundle, toFastifyPath } from "./spec.js";
-import { dueSoon, kstDate, pickNow, waitingOnMe } from "./today.js";
+import { kstDate } from "./today.js";
 
 // 옛 방식(CommonJS) 꾸러미라 .default 로 꺼낸다
 const Ajv = AjvModule.default;
@@ -70,77 +70,8 @@ export type AppOptions = {
   clock?: () => Date;
 };
 
-// ── 바깥으로 나가는 모양 (명세서: 낙타 표기, 세계 표준시) ──
-
-export const toProject = (p: Project) => ({
-  id: p.id,
-  name: p.name,
-  createdAt: p.created_at,
-  updatedAt: p.updated_at,
-  deletedAt: p.deleted_at,
-});
-
-export const toMilestone = (m: Milestone) => ({
-  id: m.id,
-  projectId: m.project_id,
-  name: m.name,
-  dueAt: m.due_at,
-  doneWhen: m.done_when ?? null,
-  etag: etag(m),
-  createdAt: m.created_at,
-  updatedAt: m.updated_at,
-  deletedAt: m.deleted_at,
-});
-
-export const toTask = (t: Task) => ({
-  id: t.id,
-  projectId: t.project_id,
-  milestoneId: t.milestone_id,
-  title: t.title,
-  status: t.status,
-  blockedReason: t.blocked_reason,
-  heldBy: t.held_by,
-  dueAt: t.due_at,
-  source: t.source,
-  sourceRef: t.source_ref,
-  externalText: t.external_text === 1,
-  body: t.body,
-  owner: t.owner ?? "author",
-  sourceUrl: t.source_url ?? null,
-  progressNote: t.progress_note ?? null,
-  createdAt: t.created_at,
-  updatedAt: t.updated_at,
-  deletedAt: t.deleted_at,
-});
-
-export const toChange = (c: ChangeRow) => ({
-  id: c.id,
-  at: c.at,
-  actor: c.actor,
-  actorKind: c.actor_kind,
-  session: c.session,
-  entity: c.entity,
-  entityId: c.entity_id,
-  action: c.action,
-  details: c.details ? JSON.parse(c.details) : null,
-});
-
-export const toDecision = (d: Decision) => ({
-  id: d.id,
-  taskId: d.task_id,
-  question: d.question,
-  options: JSON.parse(d.options) as string[],
-  recommended: d.recommended,
-  basis: d.basis,
-  askedBy: d.asked_by,
-  askedAt: d.asked_at,
-  answer: d.answer,
-  note: d.note,
-  answeredBy: d.answered_by,
-  answeredAt: d.answered_at,
-});
-
-const etag = (t: { version: number }) => `"v${t.version}"`;
+// 바깥으로 나가는 모양은 shape.ts (브라우저 시연판도 같은 것을 씀)
+export { toChange, toDecision, toMilestone, toProject, toTask } from "./shape.js";
 
 // If-Match: 없으면 검사 안 함(작가 결정: 선택). 「*」 도 검사 안 함.
 // If-Match 는 강한 비교(RFC 9110): 약한 표시(W/"…")는 맞는 것으로 치지 않는다. 여러 개를 쉼표로 보내면 하나라도 맞으면 통과.
@@ -541,35 +472,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
   });
 
   // ── 오늘 (M1-7): 지금 할 것, 내가 정할 것, 마감 가까운 것을 서버가 계산 ──
-  const todayBody = (req: FastifyRequest, day: string) => {
-    const s = storeFor(req);
-    const tasks = s.listTasks();
-    const state = s.getDay(day);
-    const now = pickNow(tasks, { skipped: new Set(state.skipped), pinnedId: state.pinnedTaskId });
-    const waiting = waitingOnMe(tasks);
-    return {
-      day,
-      now: now ? toTask(now) : null,
-      pinnedTaskId: state.pinnedTaskId,
-      skipped: state.skipped,
-      waitingOnMe: waiting.map(toTask),
-      dueSoon: dueSoon(tasks, clock()).map(toTask),
-      // 내가 정할 것의 질문 (결정함, M1-4)
-      decisions: s.listDecisions({ open: true }).map(toDecision),
-      // AI 가 끈 스위치는 다시 켤 때까지 오늘 화면 맨 위에 (작가 결정 2026-11-13)
-      notices: s
-        .listSettings()
-        .filter((x) => !x.enabled && x.changedKind === "ai")
-        .map((x) => ({
-          kind: "switch-off" as const,
-          name: x.name,
-          label: x.label,
-          changedBy: x.changedBy,
-          reason: x.reason,
-          changedAt: x.changedAt,
-        })),
-    };
-  };
+  const todayBody = (req: FastifyRequest, day: string) => buildToday(storeFor(req), day, clock());
 
   route("GET", "/v1/today", async (req) => {
     const q = req.query as { day?: string };
