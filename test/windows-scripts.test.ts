@@ -40,6 +40,14 @@ describe("윈도우 스크립트", () => {
     }
   });
 
+  it("파일을 읽어 JSON 으로 바꿀 때는 늘 -Encoding UTF8 (5.1 기본은 한글을 깨뜨려 읽어 복원 연습이 실패로 보였음, 11-13 윈도우 확인)", () => {
+    for (const f of files)
+      for (const line of code(f)
+        .split("\n")
+        .filter((l) => /Get-Content[^|]*\|\s*ConvertFrom-Json/.test(l)))
+        expect(line, f).toContain("-Encoding UTF8");
+  });
+
   it("배포가 복사하는 실행기 파일이 저장소에 있음", () => {
     const deploy = readFileSync(join(DIR, "deploy.ps1"), "utf8");
     for (const m of deploy.matchAll(/scripts\\([\w-]+\.mjs)/g))

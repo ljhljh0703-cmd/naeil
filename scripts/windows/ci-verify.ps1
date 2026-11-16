@@ -21,7 +21,7 @@ function ServiceLogs {
 # 1. 배포 직후
 $h = Wait-Health 30
 Check '배포 뒤 상태 확인 200' ($null -ne $h) $h
-$ver = (Get-Content (Join-Path $Repo 'package.json') -Raw | ConvertFrom-Json).version
+$ver = (Get-Content (Join-Path $Repo 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
 Check "상태 확인의 판 번호 = $ver" ($h -match "`"version`":`"$ver`"") $h
 $t = Get-ScheduledTask -TaskName $TaskServer -ErrorAction SilentlyContinue
 Check '서버 작업 등록 (컴퓨터 켜질 때, 로그인 없이)' ($t -and $t.Triggers[0].CimClass.CimClassName -eq 'MSFT_TaskBootTrigger' -and $t.Principal.LogonType -eq 'S4U') "$($t.Triggers[0].CimClass.CimClassName) $($t.Principal.LogonType)"
@@ -42,7 +42,7 @@ if ($pid1) {
   $h2 = Wait-Health 40
   $pid2 = ServerPid
   Check '죽인 서버가 다시 켜짐 (새 프로세스)' ($null -ne $h2 -and $pid2 -and $pid2 -ne $pid1) "$pid1 → $pid2"
-  $st = Get-Content (Join-Path $LogDir 'service-state.json') -Raw | ConvertFrom-Json
+  $st = Get-Content (Join-Path $LogDir 'service-state.json') -Raw -Encoding UTF8 | ConvertFrom-Json
   Check '실행기 기록에 두 번 켬' ($st.runs -ge 2) "runs=$($st.runs)"
 }
 
@@ -62,7 +62,7 @@ Check '매일 백업 작업 결과 0' ($bi.LastTaskResult -eq 0) "결과 $($bi.L
 $bk = @(Get-ChildItem (Join-Path $AppHome 'backups') -Filter 'naeil-*.db' -ErrorAction SilentlyContinue)
 Check '백업 파일이 생김' ($bk.Count -ge 1) "$($bk.Count)"
 $drill = Join-Path $AppHome 'backups\last-drill.json'
-Check '복원 연습 통과' ((Test-Path $drill) -and (Get-Content $drill -Raw | ConvertFrom-Json).ok) ''
+Check '복원 연습 통과' ((Test-Path $drill) -and (Get-Content $drill -Raw -Encoding UTF8 | ConvertFrom-Json).ok) ''
 $h4 = Get-Health
 Check '상태 확인 백업 칸 ok' ($h4 -match '"backup":"ok"') $h4
 
