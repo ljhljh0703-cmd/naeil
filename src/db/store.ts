@@ -9,7 +9,8 @@ export type Status = (typeof STATUSES)[number];
 export type BlockedReason = (typeof BLOCKED_REASONS)[number];
 
 // 누가 바꿨나. actor = 출입증이 정한 도구 이름, session = 세션 이름표(선택)
-export type Who = string | { actor: string; session?: string | null };
+export type ActorKind = "human" | "ai" | "ci";
+export type Who = string | { actor: string; session?: string | null; kind?: ActorKind | null };
 
 export type Project = {
   id: string;
@@ -66,11 +67,30 @@ export type ChangeRow = {
   at: string;
   actor: string;
   session: string | null;
+  actor_kind: ActorKind | null;
   entity: string;
   entity_id: string;
   action: string;
   details: string | null;
 };
+
+export type ChangeFilter = {
+  actor?: string;
+  actorKind?: ActorKind;
+  entity?: "project" | "milestone" | "task";
+  entityId?: string;
+  since?: string; // 한국 날짜 YYYY-MM-DD (그날 0시부터)
+  until?: string; // 한국 날짜 YYYY-MM-DD (그날 끝까지)
+  limit?: number;
+  beforeId?: number;
+};
+
+// 한국 날짜의 0시를 세계 표준시로 (days 만큼 뒤 날짜)
+export function kstDayStart(day: string, days = 0): string {
+  const t = Date.parse(`${day}T00:00:00+09:00`);
+  if (Number.isNaN(t)) throw new BadInput(`날짜는 YYYY-MM-DD 로: ${day}`);
+  return new Date(t + days * 86_400_000).toISOString();
+}
 
 export type TaskFilter = {
   projectId?: string;
@@ -107,8 +127,10 @@ const utc = (v: string | null | undefined) => {
   return date.toISOString();
 };
 
-function norm(who: Who): { actor: string; session: string | null } {
-  return typeof who === "string" ? { actor: who, session: null } : { session: null, ...who };
+function norm(who: Who): { actor: string; session: string | null; kind: ActorKind | null } {
+  return typeof who === "string"
+    ? { actor: who, session: null, kind: null }
+    : { actor: who.actor, session: who.session ?? null, kind: who.kind ?? null };
 }
 
 export class Store {
@@ -123,16 +145,17 @@ export class Store {
   }
 
   private log(who: Who, entity: string, entityId: string, action: string, details?: unknown) {
-    const { actor, session } = norm(who);
+    const { actor, session, kind } = norm(who);
     this.db
       .prepare(
-        "INSERT INTO change_log (workspace_id, at, actor, session, entity, entity_id, action, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO change_log (workspace_id, at, actor, session, actor_kind, entity, entity_id, action, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         this.workspace,
         this.now(),
         actor,
         session,
+        kind,
         entity,
         entityId,
         action,
@@ -409,7 +432,8 @@ export class Store {
           utc(input.dueAt),
           input.source ?? "direct",
           input.sourceRef ?? null,
-          input.externalText ? 1 : 0,
+          // 직접 쓴 것이 아니면(깃허브 등에서 가져옴) 보내는 쪽이 빼도 서버가 늘 바깥 글로 표시 (M1-7)
+          input.externalText || (input.source ?? "direct") !== "direct" ? 1 : 0,
           input.body ?? null,
           t,
           t,
@@ -589,12 +613,33 @@ export class Store {
 
   // ── 변경 기록 ──
 
-  listChanges(filter: { actor?: string; limit?: number; beforeId?: number } = {}): ChangeRow[] {
+  // 거르기 (M1-7): 누가, 어떤 종류의 출입증이, 어느 항목을, 어느 날부터 어느 날까지 (한국 날짜)
+  listChanges(filter: ChangeFilter = {}): ChangeRow[] {
     const where = ["workspace_id = ?"];
     const args: unknown[] = [this.workspace];
     if (filter.actor) {
       where.push("actor = ?");
       args.push(filter.actor);
+    }
+    if (filter.actorKind) {
+      where.push("actor_kind = ?");
+      args.push(filter.actorKind);
+    }
+    if (filter.entity) {
+      where.push("entity = ?");
+      args.push(filter.entity);
+    }
+    if (filter.entityId) {
+      where.push("entity_id = ?");
+      args.push(filter.entityId);
+    }
+    if (filter.since) {
+      where.push("at >= ?");
+      args.push(kstDayStart(filter.since));
+    }
+    if (filter.until) {
+      where.push("at < ?");
+      args.push(kstDayStart(filter.until, 1));
     }
     if (filter.beforeId !== undefined) {
       where.push("id < ?");
@@ -604,6 +649,28 @@ export class Store {
     return this.db
       .prepare(`SELECT * FROM change_log WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ?`)
       .all(...args) as ChangeRow[];
+  }
+
+  // ── 오늘 고정과 건너뛰기 (날짜별, M1-7) ──
+
+  getDay(day: string): { pinnedTaskId: string | null; skipped: string[] } {
+    const row = this.db
+      .prepare("SELECT pinned_task_id, skipped FROM day_state WHERE workspace_id = ? AND day = ?")
+      .get(this.workspace, day) as { pinned_task_id: string | null; skipped: string } | undefined;
+    return row
+      ? { pinnedTaskId: row.pinned_task_id, skipped: JSON.parse(row.skipped) as string[] }
+      : { pinnedTaskId: null, skipped: [] };
+  }
+
+  setDay(day: string, state: { pinnedTaskId: string | null; skipped: string[] }): void {
+    const skipped = [...new Set(state.skipped)];
+    this.db
+      .prepare(
+        `INSERT INTO day_state (workspace_id, day, pinned_task_id, skipped, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (workspace_id, day) DO UPDATE SET pinned_task_id = excluded.pinned_task_id,
+           skipped = excluded.skipped, updated_at = excluded.updated_at`,
+      )
+      .run(this.workspace, day, state.pinnedTaskId, JSON.stringify(skipped), this.now());
   }
 
   recentChanges(limit = 20): ChangeRow[] {

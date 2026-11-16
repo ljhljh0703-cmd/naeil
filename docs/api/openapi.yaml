@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: naeil API
-  version: 0.0.6
+  version: 0.0.7
   summary: 내 일은 naeil에서
   description: |
     내일은내일(naeil) 할 일 API 명세서 v1 (작가 결정 4곳 반영 2026-10-25, 코드는 1-2단계).
@@ -488,6 +488,26 @@ paths:
           in: query
           description: 누가 바꾼 것만 (예 claude)
           schema: { type: string, maxLength: 32 }
+        - name: actorKind
+          in: query
+          description: 어떤 종류의 출입증이 바꾼 것만 (human 사람, ai AI 세션, ci 자동 검사)
+          schema: { $ref: "#/components/schemas/KeyKind" }
+        - name: entity
+          in: query
+          description: 항목 종류
+          schema: { type: string, enum: [project, milestone, task] }
+        - name: entityId
+          in: query
+          description: 항목 하나의 기록만 (작업 상세의 「바뀐 기록」)
+          schema: { type: string, maxLength: 64 }
+        - name: since
+          in: query
+          description: 이 한국 날짜 0시부터 (YYYY-MM-DD)
+          schema: { type: string, format: date }
+        - name: until
+          in: query
+          description: 이 한국 날짜 끝까지 (YYYY-MM-DD)
+          schema: { type: string, format: date }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
       responses:
@@ -506,6 +526,54 @@ paths:
                   nextCursor: { type: [string, "null"] }
         "400": { $ref: "#/components/responses/BadRequest" }
 
+  /v1/today:
+    parameters:
+      - name: day
+        in: query
+        description: 한국 날짜 (YYYY-MM-DD). 없으면 오늘
+        schema: { type: string, format: date }
+    get:
+      tags: [today]
+      operationId: getToday
+      summary: 오늘 화면 (지금 할 것 1개, 내가 정할 것, 마감 가까운 것)
+      description: |
+        서버가 계산한다. 화면, 폰, AI 도구가 같은 「지금 할 것」을 본다.
+        지금 할 것 = 멈추지 않은 내 일 중 고정한 것 → 하는 중 → 마감 가까운 것 → 오래된 것. 건너뛴 것은 그날 하루 뺀다.
+      responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "200":
+          description: 오늘
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Today" }
+    put:
+      tags: [today]
+      operationId: setToday
+      summary: 그날의 「오늘은 이거」 고정과 건너뛰기를 바꾼다
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pinnedTaskId, skipped]
+              additionalProperties: false
+              properties:
+                pinnedTaskId: { type: [string, "null"], maxLength: 64 }
+                skipped:
+                  type: array
+                  maxItems: 500
+                  items: { type: string, maxLength: 64 }
+      responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "200":
+          description: 바뀐 오늘
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Today" }
+
 components:
   securitySchemes:
     naeilKey:
@@ -514,6 +582,7 @@ components:
       description: |
         도구별 출입증 (작가 결정 2026-10-25). `Authorization: Bearer <키>`.
         - 도구마다 1장: author(화면) · claude · codex. 세션마다 만들지 않는다
+        - 종류 3가지 (M1-7): human 사람, ai AI 세션, ci 자동 검사. 변경 기록에 그때 종류가 남는다 (actorKind)
         - 서버는 키를 보고 「누가」를 스스로 정한다. 요청이 밝힌 이름은 믿지 않는다
         - 키는 만들 때 한 번만 보이고, 서버에는 잠근 값(해시)만 저장
         - 명령 두 개로 관리: 새 출입증 만들기 · 출입증 폐기
@@ -736,11 +805,34 @@ components:
         id: { type: integer }
         at: { type: string, format: date-time }
         actor: { type: string, description: "출입증이 정한 도구 이름 (author, claude, codex)" }
+        actorKind:
+          description: 그때 출입증 종류. 종류 칸이 생기기 전 기록이나 명령줄에서 바꾼 것은 null
+          anyOf:
+            - { $ref: "#/components/schemas/KeyKind" }
+            - { type: "null" }
         session: { type: [string, "null"], description: "세션 이름표 (보냈을 때만)" }
         entity: { type: string, enum: [project, milestone, task] }
         entityId: { type: string }
         action: { type: string, description: "create, status, block, unblock, trash, revive 등" }
         details: { type: [object, "null"] }
+    KeyKind:
+      type: string
+      enum: [human, ai, ci]
+      description: 출입증 종류. human 사람, ai AI 세션, ci 자동 검사
+    Today:
+      type: object
+      required: [day, now, pinnedTaskId, skipped, waitingOnMe, dueSoon]
+      properties:
+        day: { type: string, format: date }
+        now:
+          description: 지금 할 것 1개. 없으면 null
+          anyOf:
+            - { $ref: "#/components/schemas/Task" }
+            - { type: "null" }
+        pinnedTaskId: { type: [string, "null"] }
+        skipped: { type: array, items: { type: string } }
+        waitingOnMe: { type: array, items: { $ref: "#/components/schemas/Task" } }
+        dueSoon: { type: array, items: { $ref: "#/components/schemas/Task" } }
     Problem:
       type: object
       description: 오류 한 가지 모양 (RFC 9457)

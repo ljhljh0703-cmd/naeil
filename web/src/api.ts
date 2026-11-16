@@ -108,6 +108,15 @@ const once = (key?: string) => ({ "idempotency-key": key ?? newKey() });
 
 type Page<T> = { items: T[]; nextCursor: string | null };
 
+export type Today = {
+  day: string;
+  now: ApiTask | null;
+  pinnedTaskId: string | null;
+  skipped: string[];
+  waitingOnMe: ApiTask[];
+  dueSoon: ApiTask[];
+};
+
 export const api = {
   projects: () => call<{ items: Project[] }>("GET", "/v1/projects").then((r) => r.items),
   createProject: (name: string, key?: string) =>
@@ -161,6 +170,10 @@ export const api = {
   updateMilestone: (m: Milestone, patch: { name?: string; dueAt?: string | null }) =>
     call<Milestone>("PATCH", `/v1/milestones/${m.id}`, patch, { "if-match": m.etag }),
   trashMilestone: (id: string) => call<null>("DELETE", `/v1/milestones/${id}`),
+  // 서버가 계산한 오늘 (M1-7). 고정과 건너뛰기도 서버에 날짜별로
+  today: () => call<Today>("GET", "/v1/today"),
+  setToday: (state: { pinnedTaskId: string | null; skipped: string[] }) =>
+    call<Today>("PUT", "/v1/today", state),
   // 상세의 「바뀐 기록」 칸도 여기서 거른다 (최근 200줄)
   changes: (limit = 200) =>
     call<Page<Change>>("GET", `/v1/changes?limit=${limit}`).then((r) => r.items),

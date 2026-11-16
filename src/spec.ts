@@ -77,13 +77,15 @@ export function routeSchema(specPath: string, method: string) {
   );
   const group = (where: string, lower = false) => {
     const ps = params.filter((p) => p.in === where);
-    if (!ps.length) return undefined;
+    // 주소 뒤 조건(query)은 명세서에 없는 이름이면 400 (M1-7). 전에는 모르는 조건을 말없이 무시하고 200
+    if (!ps.length && where !== "query") return undefined;
     return {
       type: "object",
       properties: Object.fromEntries(
         ps.map((p) => [lower ? p.name.toLowerCase() : p.name, rewriteRefs(p.schema ?? {})]),
       ),
       required: ps.filter((p) => p.required).map((p) => (lower ? p.name.toLowerCase() : p.name)),
+      ...(where === "query" ? { additionalProperties: false } : {}),
     };
   };
   const body = op.requestBody?.content["application/json"]?.schema;
