@@ -78,6 +78,8 @@ export type Task = {
   source_seen?: string | null;
   // 어디까지 했나 한 줄 (007)
   progress_note?: string | null;
+  // 우선순위 (012)
+  priority?: Priority;
 };
 
 export type Decision = {
@@ -126,6 +128,8 @@ export type Setting = {
 };
 
 export type Owner = "author" | "ai";
+export const PRIORITIES = ["high", "normal", "low"] as const;
+export type Priority = (typeof PRIORITIES)[number];
 
 export type UsageDay = {
   day: string;
@@ -209,6 +213,7 @@ export type TaskPatch = {
   milestoneId?: string | null;
   owner?: Owner;
   progressNote?: string | null;
+  priority?: Priority;
 };
 
 type Clock = () => Date;
@@ -706,6 +711,11 @@ export class Store {
       args.push(patch.owner);
       changed.owner = patch.owner;
     }
+    if (patch.priority !== undefined && patch.priority !== (before.priority ?? "normal")) {
+      sets.push("priority = ?");
+      args.push(patch.priority);
+      changed.priority = patch.priority;
+    }
     if (patch.progressNote !== undefined) {
       const v = patch.progressNote?.trim() || null;
       sets.push("progress_note = ?");
@@ -1073,9 +1083,15 @@ export class Store {
           changed.milestone = it.milestone ?? null;
         }
         let change = "update";
+        // 출처에서 끝났거나 더는 정할 것이 아니게 되면, 그 할 일에 열린 질문도 닫는다 (질문만 열린 채 남지 않게)
+        let closeAsk: string | null = null;
         if (moved("state") && seen.state === "done" && t.status !== "done") {
           sets.push("status = 'done'", "blocked_reason = NULL", CLEAR_HOLD);
           change = "close";
+          closeAsk = "출처에서 끝나 질문을 닫음";
+        } else if (moved("decision") && !seen.decision && prev.decision) {
+          closeAsk = "출처에서 정할 것이 아니게 되어 질문을 닫음";
+          if (t.blocked_reason === "my_decision") sets.push("blocked_reason = NULL");
         } else if (moved("state") && seen.state === "open" && t.status === "done") {
           // 출처에서 다시 열린 것 (놓친 것 부활)
           sets.push("status = 'todo'");
@@ -1088,6 +1104,7 @@ export class Store {
           t.status !== "done" &&
           (moved("decision") || moved("title") || moved("options") || moved("recommended"));
         const seenText = JSON.stringify(seen);
+        if (closeAsk) this.closeOpenDecision(who, t.id, closeAsk);
         if (!sets.length) {
           // 고칠 것은 없어도 본 값은 새로 적는다 (다음 비교의 기준)
           if (seenText !== t.source_seen)
@@ -1210,6 +1227,18 @@ export class Store {
         this.updateTask(who, taskId, { status: "done" });
       }
     })();
+  }
+
+  // 정하지 않고 닫는다 (출처에서 끝났거나 정할 것이 아니게 됨). 답 칸에는 「닫힘」, 이유는 메모에
+  private closeOpenDecision(who: Who, taskId: string, why: string): void {
+    const open = this.openDecision(taskId);
+    if (!open) return;
+    this.db
+      .prepare(
+        "UPDATE decisions SET answer = '닫힘', note = ?, answered_by = ?, answered_at = ? WHERE id = ?",
+      )
+      .run(why, norm(who).actor, this.now(), open.id);
+    this.log(who, "task", taskId, "decide-closed", { question: open.question, why });
   }
 
   private openDecision(taskId: string): Decision | undefined {

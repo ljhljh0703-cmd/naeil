@@ -10,6 +10,7 @@ export type BoardTask = {
   milestoneId: string | null;
   status: Status;
   deletedAt?: string | null;
+  priority?: "high" | "normal" | "low";
 };
 
 export type Progress = { total: number; done: number; doing: number; percent: number };
@@ -63,7 +64,12 @@ export function groupBoard(
   return groups;
 }
 
-// 하던 중 → 할 일 → 끝 순서. 끝난 건 아래로.
+// 하던 중 → 할 일 → 끝 순서. 끝난 건 아래로. 같은 칸 안에서는 우선순위 높음 → 보통 → 낮음 (0.8.0)
 const ORDER: Record<Status, number> = { doing: 0, todo: 1, done: 2 };
+const RANK = { high: 0, normal: 1, low: 2 } as const;
 export const sortForBoard = <T extends BoardTask>(list: T[]): T[] =>
-  [...list].sort((a, b) => ORDER[a.status] - ORDER[b.status]);
+  [...list].sort(
+    (a, b) =>
+      ORDER[a.status] - ORDER[b.status] ||
+      RANK[a.priority ?? "normal"] - RANK[b.priority ?? "normal"],
+  );

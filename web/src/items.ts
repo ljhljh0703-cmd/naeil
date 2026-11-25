@@ -241,6 +241,10 @@ function decisionSections(ctx: Ctx, t: ApiTask): Section[] {
 export function taskChips(t: ApiTask, ctx: Ctx): Chip[] {
   const chips: Chip[] = [];
   if (t.blockedReason) chips.push({ label: BLOCKED[t.blockedReason], tone: "warn" });
+  if (t.status !== "done" && t.priority === "high")
+    chips.push({ label: "우선 높음", tone: "warn" });
+  if (t.status !== "done" && t.priority === "low")
+    chips.push({ label: "우선 낮음", tone: "neutral" });
   if (t.dueAt && t.status !== "done") {
     const d = dDay(t.dueAt, ctx.now);
     chips.push({ label: dLabel(d), tone: d < 0 ? "fail" : d <= 1 ? "warn" : "neutral" });
@@ -275,6 +279,20 @@ registerItemType<ApiTask>("task", {
     else if (t.status !== "done" && t.blockedReason !== "my_decision")
       actions.push({ id: "need-decision", label: "내가 정할 게 있음" });
     if (ctx.handoffOn !== false) actions.push({ id: "handoff", label: "인수인계 복사" });
+    if (t.status !== "done")
+      actions.push({
+        id: "priority",
+        label: "우선순위",
+        control: {
+          kind: "select",
+          value: t.priority ?? "normal",
+          choices: [
+            { value: "high", label: "높음" },
+            { value: "normal", label: "보통" },
+            { value: "low", label: "낮음" },
+          ],
+        },
+      });
     const choices = ctx.milestones.filter((m) => m.projectId === t.projectId);
     if (choices.length > 0) {
       actions.push({

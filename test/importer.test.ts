@@ -406,3 +406,39 @@ describe("오늘 요약", () => {
     expect(existsSync(dir)).toBe(true);
   });
 });
+
+// 0.8.0 묵은 질문: 출처에서 끝났거나 정할 것이 아니게 된 일의 질문은 닫는다
+describe("가져오기: 묵은 질문 닫기", () => {
+  const cfg = () => ({ sources: [{ type: "vault-json" as const, path: writeLedger(base) }] });
+  const openAsks = () => store.listDecisions({ open: true }).length;
+
+  it("출처에서 끝나면 그 할 일의 질문도 닫힘", async () => {
+    const c = cfg();
+    await runImport(store, c, deps);
+    expect(openAsks()).toBe(1);
+    writeLedger([base[0], base[1], { ...base[2], 상태: "끝" }, base[3]]);
+    await runImport(store, c, deps);
+    expect(bySource("vm-3")?.status).toBe("done");
+    expect(openAsks()).toBe(0);
+    expect(store.getDecision(bySource("vm-3")?.id as string)).toMatchObject({
+      answer: "닫힘",
+      note: "출처에서 끝나 질문을 닫음",
+    });
+  });
+
+  it("출처에서 정할 것이 아니게 되면 질문을 닫고 멈춤을 풂", async () => {
+    const c = cfg();
+    await runImport(store, c, deps);
+    writeLedger([base[0], base[1], { ...base[2], 종류: "할 일", 상태: "열림" }, base[3]]);
+    await runImport(store, c, deps);
+    expect(openAsks()).toBe(0);
+    expect(bySource("vm-3")).toMatchObject({ status: "todo", blocked_reason: null });
+  });
+
+  it("출처가 그대로면 질문도 그대로", async () => {
+    const c = cfg();
+    await runImport(store, c, deps);
+    await runImport(store, c, deps);
+    expect(openAsks()).toBe(1);
+  });
+});

@@ -301,6 +301,7 @@ export function App() {
     const id = ref.id;
     const byId: Record<string, () => Promise<unknown>> = {
       "move-milestone": () => api.setMilestone(id, value ? value : null),
+      priority: () => api.setPriority(id, value === "high" || value === "low" ? value : "normal"),
       rename: () => api.rename(id, value ?? ""),
       start: () => api.setStatus(id, "doing"),
       done: () => api.setStatus(id, "done"),

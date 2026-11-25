@@ -74,8 +74,21 @@ export async function run({ page, ok, until, base, out }) {
   const loose = p.locator(".ms").last();
   const looseTitle = await loose.locator(".card-link").first().textContent();
   await loose.locator(".card-link").first().click();
-  await p.waitForSelector(".detail .control select");
-  await p.locator(".detail .control select").selectOption({ label: "맥 앱 포장" });
+  await p.locator(".detail").getByLabel("마일스톤", { exact: true }).waitFor();
+  await p
+    .locator(".detail")
+    .getByLabel("마일스톤", { exact: true })
+    .selectOption({ label: "맥 앱 포장" });
+  // 우선순위 높음 → 카드에 표시
+  await p.locator(".detail").getByLabel("우선순위").selectOption({ label: "높음" });
+  ok(
+    await until(async () =>
+      (await p.locator(".ms .item-card", { hasText: looseTitle }).textContent()).includes(
+        "우선 높음",
+      ),
+    ),
+    "상세에서 우선순위 높음 → 카드에 「우선 높음」",
+  );
   const mac = p.locator(".ms", { has: p.locator(".ms-link", { hasText: "맥 앱 포장" }) });
   ok(
     await until(

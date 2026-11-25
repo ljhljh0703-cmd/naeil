@@ -83,4 +83,14 @@ describe("보드 묶기", () => {
     ]);
     expect(sorted.map((x) => x.id)).toEqual(["c", "b", "a"]);
   });
+
+  it("같은 칸 안에서는 우선순위 높음 → 보통 → 낮음", () => {
+    const sorted = sortForBoard([
+      { ...t("low", "todo", null), priority: "low" as const },
+      t("normal", "todo", null),
+      { ...t("high", "todo", null), priority: "high" as const },
+      { ...t("doing", "doing", null), priority: "low" as const },
+    ]);
+    expect(sorted.map((x) => x.id)).toEqual(["doing", "high", "normal", "low"]);
+  });
 });

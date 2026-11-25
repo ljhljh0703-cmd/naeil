@@ -29,6 +29,7 @@ export type ApiTask = Task & {
   owner?: "author" | "ai";
   sourceUrl?: string | null;
   progressNote?: string | null;
+  priority?: "high" | "normal" | "low";
 };
 
 export type Decision = {
@@ -242,6 +243,8 @@ export const api = {
     call<{ items: Decision[] }>("GET", "/v1/decisions?limit=200").then((r) => r.items),
   answer: (taskId: string, answer: string) =>
     call<Decision>("POST", `/v1/tasks/${taskId}/decision/answer`, { answer }),
+  setPriority: (id: string, priority: "high" | "normal" | "low") =>
+    call<ApiTask>("PATCH", `/v1/tasks/${id}`, { priority }),
   setProgress: (id: string, progressNote: string | null) =>
     call<ApiTask>("PATCH", `/v1/tasks/${id}`, { progressNote }),
   handoff: (scope: { taskId?: string; milestoneId?: string; projectId?: string }) => {
