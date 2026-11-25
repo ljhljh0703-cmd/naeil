@@ -189,6 +189,8 @@ export const api = {
     call<{ items: Project[] }>("GET", "/v1/projects?includeTrashed=true").then((r) =>
       r.items.filter((p) => p.deletedAt),
     ),
+  renameProject: (id: string, name: string) =>
+    call<Project>("PATCH", `/v1/projects/${id}`, { name }),
   trashProject: (id: string) => call<null>("DELETE", `/v1/projects/${id}`),
   reviveProject: (id: string) => call<Project>("POST", `/v1/projects/${id}/revive`),
   async allTasks(): Promise<ApiTask[]> {

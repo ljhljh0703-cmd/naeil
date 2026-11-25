@@ -1,6 +1,6 @@
 {
   "name": "naeil",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "내 일은 naeil에서 · AI 세션을 오가도 어제 한 일을 잃지 않는 1인 개발자 작업판",
   "license": "MIT",
   "private": true,
@@ -27,6 +27,7 @@
     "lint:api": "npx -y @redocly/cli@1 lint docs/api/openapi.yaml",
     "import": "tsx src/cli/import.ts",
     "key": "tsx src/cli/key.ts",
+    "project": "tsx src/cli/project.ts",
     "mcp": "node dist/mcp-server.js",
     "deploy:mac": "bash scripts/macos/deploy.sh",
     "deploy:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/deploy.ps1",

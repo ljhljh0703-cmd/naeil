@@ -12,16 +12,50 @@ import {
 import { type ActFn, CardList, type OpenFn } from "./ItemViews.js";
 import { type CardModel, type Ctx, cardOf, hrefFor, type ItemRef, refKey } from "./items.js";
 import { dLabel } from "./labels.js";
-import { dDay, dueFromKstDate, kstDate } from "./today.js";
+import { dDay, dueFromKstDate, kstDate, type Status } from "./today.js";
 
-function Bar({ p, label }: { p: Progress; label: string }) {
-  const done = p.total ? (p.done / p.total) * 100 : 0;
-  const doing = p.total ? (p.doing / p.total) * 100 : 0;
+// 할 일 하나 = 막대 한 칸. 끝, 하는 중, 멈춤, 남음 순으로 채워 몇 개 남았는지 눈으로 센다.
+// 할 일이 너무 많으면(칸이 좁아지면) 예전처럼 비율 막대로
+type SegTask = { id: string; title: string; status: Status; blockedReason?: string | null };
+const SEG_ORDER = (t: SegTask) =>
+  t.status === "done" ? 0 : t.status === "doing" ? 1 : t.blockedReason ? 2 : 3;
+const SEG_CLASS = ["tick-done", "tick-doing", "tick-wait", "tick-todo"];
+const SEG_WORD = ["끝", "하는 중", "멈춤", "남음"];
+const MAX_SEGMENTS = 60;
+
+function Bar({ p, groups, label }: { p: Progress; groups: SegTask[][]; label: string }) {
+  const count = groups.reduce((n, g) => n + g.length, 0);
+  if (count === 0 || count > MAX_SEGMENTS) {
+    const done = p.total ? (p.done / p.total) * 100 : 0;
+    const doing = p.total ? (p.doing / p.total) * 100 : 0;
+    return (
+      <div className="bar-row">
+        <div className="bar" aria-hidden="true">
+          <span className="bar-done" style={{ width: `${done}%` }} />
+          <span className="bar-doing" style={{ width: `${doing}%` }} />
+        </div>
+        <span className="bar-text">{label}</span>
+      </div>
+    );
+  }
   return (
     <div className="bar-row">
-      <div className="bar" aria-hidden="true">
-        <span className="bar-done" style={{ width: `${done}%` }} />
-        <span className="bar-doing" style={{ width: `${doing}%` }} />
+      <div className="tickbar" role="img" aria-label={label}>
+        {groups
+          .filter((g) => g.length > 0)
+          .map((g) => (
+            <span className="tick-group" key={g[0]?.id} style={{ flexGrow: g.length }}>
+              {[...g]
+                .sort((a, b) => SEG_ORDER(a) - SEG_ORDER(b))
+                .map((t) => (
+                  <span
+                    key={t.id}
+                    className={`tick ${SEG_CLASS[SEG_ORDER(t)]}`}
+                    title={`${SEG_WORD[SEG_ORDER(t)]}: ${t.title}`}
+                  />
+                ))}
+            </span>
+          ))}
       </div>
       <span className="bar-text">{label}</span>
     </div>
@@ -31,7 +65,86 @@ function Bar({ p, label }: { p: Progress; label: string }) {
 const progressLabel = (p: Progress) =>
   p.total === 0
     ? "할 일 없음"
-    : `${p.done}/${p.total} 완료${p.doing ? ` · 진행 중 ${p.doing}` : ""} · ${p.percent}%`;
+    : p.done === p.total
+      ? `모두 완료, 전체 ${p.total}개`
+      : `남은 ${p.total - p.done}개, 전체 ${p.total}개${p.doing ? `, 하는 중 ${p.doing}` : ""}`;
+
+const segOf = (ctx: Ctx, list: { id: string }[]): SegTask[] =>
+  list
+    .map((x) => ctx.tasks.find((t) => t.id === x.id))
+    .filter((t): t is NonNullable<typeof t> => !!t);
+
+// 질문이 열려 있으면 「고르기」(상세에서 답), 정할 것이라고만 멈춘 일은 「정했음」, 그 밖에는 「완료」. 오늘 화면과 같은 규칙
+function quickFor(ctx: Ctx, id: string) {
+  const t = ctx.tasks.find((x) => x.id === id);
+  if (!t || t.status === "done") return undefined;
+  if (ctx.decisions?.some((d) => d.taskId === id && !d.answeredAt))
+    return { id: "open-decision", label: "고르기" };
+  if (t.blockedReason === "my_decision") return { id: "decided", label: "정했음" };
+  return { id: "done", label: "완료" };
+}
+
+// 프로젝트 이름: 누르면 그 자리에서 고친다. 가져오기는 출처로 프로젝트를 찾으므로 이름을 바꿔도 갈라지지 않는다
+function ProjectName({
+  project,
+  onDone,
+  onError,
+}: {
+  project: Project;
+  onDone: () => Promise<void>;
+  onError: (m: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(project.name);
+  const [busy, setBusy] = useState(false);
+  if (!editing)
+    return (
+      <div className="name-row">
+        <h2 id="board-title">{project.name}</h2>
+        <button type="button" className="ghost small" onClick={() => setEditing(true)}>
+          이름 바꾸기
+        </button>
+      </div>
+    );
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const v = name.trim();
+    if (!v || v === project.name) return setEditing(false);
+    setBusy(true);
+    try {
+      await api.renameProject(project.id, v);
+      await onDone();
+      setEditing(false);
+    } catch (err) {
+      onError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="name-row" onSubmit={submit}>
+      <input
+        aria-label="프로젝트 이름"
+        value={name}
+        maxLength={100}
+        onChange={(e) => setName(e.target.value)}
+      />
+      <button type="submit" className="small" disabled={busy}>
+        저장
+      </button>
+      <button
+        type="button"
+        className="ghost small"
+        onClick={() => {
+          setName(project.name);
+          setEditing(false);
+        }}
+      >
+        취소
+      </button>
+    </form>
+  );
+}
 
 export function Board({
   ctx,
@@ -97,8 +210,13 @@ export function Board({
             ))}
           </fieldset>
         )}
-        <h2 id="board-title">{project.name}</h2>
-        <Bar p={all} label={progressLabel(all)} />
+        <ProjectName
+          key={`name-${project.id}`}
+          project={project}
+          onDone={onReload}
+          onError={onError}
+        />
+        <Bar p={all} groups={groups.map((g) => segOf(ctx, g.tasks))} label={progressLabel(all)} />
         {next && (
           <p className="meta">
             다음 마일스톤 <strong>{next.name}</strong>
@@ -280,7 +398,7 @@ function MilestoneSection({
         // 보드 안에서는 「할 일」이 기본이라 상태 칩을 빼고, 하는 중·끝만 남긴다. 프로젝트 이름도 위에 있으니 뺀다
         status: t.status === "todo" ? undefined : c.status,
         meta: undefined,
-        quickAction: t.status !== "done" ? { id: "done", label: "완료" } : undefined,
+        quickAction: quickFor(ctx, t.id),
       };
     })
     .filter((c): c is CardModel => !!c);
@@ -320,7 +438,9 @@ function MilestoneSection({
           </span>
         )}
       </div>
-      {m && g.progress.total > 0 && <Bar p={g.progress} label={progressLabel(g.progress)} />}
+      {m && g.progress.total > 0 && (
+        <Bar p={g.progress} groups={[segOf(ctx, g.tasks)]} label={progressLabel(g.progress)} />
+      )}
       <CardList
         cards={cards}
         onOpen={onOpen}

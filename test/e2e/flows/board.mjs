@@ -20,9 +20,26 @@ export async function run({ page, ok, until, base, out }) {
     "다 안 끝난 첫 마일스톤에 「다음」 강조",
   );
   ok(
-    (await first.locator(".bar-text").textContent()).startsWith("1/2 완료"),
-    "마일스톤 진행 수 표시",
+    (await first.locator(".bar-text").textContent()).startsWith("남은 1개, 전체 2개"),
+    "마일스톤 진행: 남은 개수 표시",
   );
+  ok((await first.locator(".tick").count()) === 2, "할 일 하나가 막대 한 칸");
+  ok((await first.locator(".tick-done").count()) === 1, "끝난 칸은 채워짐");
+
+  // 프로젝트 이름 바꾸기 (그 자리에서) → 되돌리기
+  await p.locator(".board-head").getByRole("button", { name: "이름 바꾸기" }).click();
+  await p.getByLabel("프로젝트 이름").fill("내일은내일 새 이름");
+  await p.locator(".board-head").getByRole("button", { name: "저장" }).click();
+  ok(
+    await until(
+      async () => (await p.locator("#board-title").textContent()) === "내일은내일 새 이름",
+    ),
+    "프로젝트 이름을 화면에서 바꿈",
+  );
+  await p.locator(".board-head").getByRole("button", { name: "이름 바꾸기" }).click();
+  await p.getByLabel("프로젝트 이름").fill("내일은내일");
+  await p.locator(".board-head").getByRole("button", { name: "저장" }).click();
+  await until(async () => (await p.locator("#board-title").textContent()) === "내일은내일");
   ok((await p.locator(".ms.next").count()) === 1, "「다음」은 하나만");
   await p.screenshot({ path: `${out}/board-1440.png`, fullPage: true });
 
@@ -79,10 +96,7 @@ export async function run({ page, ok, until, base, out }) {
     await until(async () => (await mac.locator(".bar-text").textContent()) !== before),
     `보드에서 완료 → 진행 바뀜 (${before} → ${await mac.locator(".bar-text").textContent()})`,
   );
-  ok(
-    (await mac.locator(".bar-text").textContent()).startsWith("1/"),
-    "끝낸 1개가 진행 수에 들어감",
-  );
+  ok((await mac.locator(".tick-done").count()) === 1, "끝낸 1개가 진행 수에 들어감");
   ok(
     (await mac.getByRole("button", { name: /끝난 1개 보기/ }).count()) === 1,
     "끝난 할 일은 접히고 「끝난 N개 보기」",

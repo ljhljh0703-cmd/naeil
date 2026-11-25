@@ -712,6 +712,22 @@ export class Store {
       args.push(v);
       changed.progress_note = v;
     }
+    // 사람이 끝낼 때: 사람 확인 질문이 열려 있으면 「완료」로 답한 것으로 본다. 다른 질문이 열려 있으면 먼저 답해야 한다
+    // (그냥 끝내면 질문이 열린 채 남는다)
+    if (patch.status === "done" && before.status !== "done" && norm(who).kind !== "ai") {
+      const open = this.openDecision(id);
+      if (open?.kind === "done_check") {
+        const { status: _done, ...rest } = patch;
+        this.db.transaction(() => {
+          this.updateTask(who, id, rest, expectedVersion);
+          this.answerDecision(who, id, DONE_CHECK.options?.[0] ?? "완료");
+        })();
+        return;
+      }
+      if (open) {
+        throw new RuleViolation("open-decision", "답할 질문이 열려 있음. 질문에 먼저 답해 주세요");
+      }
+    }
     // 사람 확인 대기 (M2-1, 작가 2026-11-25 「AI로 지시해서 끝내고, 실제 문제는 없는지 직접 검증한다」):
     // AI 가 외부 입력(깃허브, vault, 운영 이슈 등) 할 일을 완료로 바꾸면 끝내지 않고 작가에게 확인을 묻는다
     if (
@@ -909,13 +925,72 @@ export class Store {
   // ── 가져오기 (M1-3) ──
 
   // 이름으로 프로젝트를 찾고, 없으면 만든다 (가져오기 묶음마다 프로젝트 하나)
-  ensureProject(who: Who, name: string): string {
+  // 가져오기용: 출처(sourceKey)로 먼저 찾고, 없으면 이름으로 찾아 출처를 붙인다 (마이그레이션 011).
+  // 출처로 찾으니 작가가 이름을 바꿔도 다음 가져오기 때 옛 이름 프로젝트가 새로 생기지 않는다
+  ensureProject(who: Who, name: string, sourceKey?: string): string {
+    if (sourceKey) {
+      const mapped = this.db
+        .prepare(
+          `SELECT p.id FROM project_sources s JOIN projects p ON p.id = s.project_id
+           WHERE s.workspace_id = ? AND s.source_key = ? AND p.deleted_at IS NULL`,
+        )
+        .get(this.workspace, sourceKey) as { id: string } | undefined;
+      if (mapped) return mapped.id;
+    }
     const found = this.db
       .prepare(
         "SELECT id FROM projects WHERE workspace_id = ? AND name = ? AND deleted_at IS NULL ORDER BY created_at LIMIT 1",
       )
       .get(this.workspace, name) as { id: string } | undefined;
-    return found?.id ?? this.createProject(who, name);
+    const id = found?.id ?? this.createProject(who, name);
+    if (sourceKey) {
+      this.db
+        .prepare(
+          "INSERT OR REPLACE INTO project_sources (workspace_id, source_key, project_id, created_at) VALUES (?, ?, ?, ?)",
+        )
+        .run(this.workspace, sourceKey, id, this.now());
+    }
+    return id;
+  }
+
+  // 프로젝트 합치기: from 의 마일스톤, 할 일, 출처를 into 로 옮기고 빈 from 은 휴지통에 넣는다 (되살릴 수 있음)
+  mergeProjects(who: Who, fromId: string, intoId: string): { milestones: number; tasks: number } {
+    if (fromId === intoId) throw new BadInput("같은 프로젝트끼리는 합칠 수 없음");
+    return this.db.transaction(() => {
+      const from = this.mustProject(fromId);
+      const into = this.mustProject(intoId);
+      const t = this.now();
+      const move = (table: string) =>
+        this.db
+          .prepare(
+            `UPDATE ${table} SET project_id = ?, version = version + 1, updated_at = ?
+             WHERE project_id = ? AND workspace_id = ? AND deleted_at IS NULL`,
+          )
+          .run(intoId, t, fromId, this.workspace).changes;
+      const milestones = move("milestones");
+      const tasks = move("tasks");
+      this.db
+        .prepare(
+          "UPDATE project_sources SET project_id = ? WHERE project_id = ? AND workspace_id = ?",
+        )
+        .run(intoId, fromId, this.workspace);
+      this.log(who, "project", intoId, "merge", {
+        from: from.name,
+        into: into.name,
+        milestones,
+        tasks,
+      });
+      this.trashProject(who, fromId);
+      return { milestones, tasks };
+    })();
+  }
+
+  findProjectByName(name: string): { id: string; name: string } | undefined {
+    return this.db
+      .prepare(
+        "SELECT id, name FROM projects WHERE workspace_id = ? AND name = ? AND deleted_at IS NULL ORDER BY created_at LIMIT 1",
+      )
+      .get(this.workspace, name) as { id: string; name: string } | undefined;
   }
 
   // 출처 하나의 일들을 넣거나 고친다. 두 번 돌려도 같은 결과 (출처 + 출처 번호 기준).
