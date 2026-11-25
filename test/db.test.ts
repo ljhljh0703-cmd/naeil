@@ -26,8 +26,10 @@ describe("표 구조 변경", () => {
       "007_handoff_decisions",
       "008_usage",
       "009_done_check",
+      "010_task_hold",
     ]);
     expect(migrateUp(db)).toEqual([]); // 두 번 돌려도 그대로
+    expect(migrateDownOne(db)).toBe("010_task_hold");
     expect(migrateDownOne(db)).toBe("009_done_check");
     expect(migrateDownOne(db)).toBe("008_usage");
     expect(migrateDownOne(db)).toBe("007_handoff_decisions");
@@ -52,6 +54,7 @@ describe("표 구조 변경", () => {
       "007_handoff_decisions",
       "008_usage",
       "009_done_check",
+      "010_task_hold",
     ]);
   });
 
@@ -167,6 +170,7 @@ describe("예시 데이터", () => {
 describe("프로젝트·마일스톤 판 번호", () => {
   it("003은 기존 행과 연결을 보존하며 올리고 되돌리고 다시 올린다", () => {
     const db = freshDb();
+    expect(migrateDownOne(db)).toBe("010_task_hold");
     expect(migrateDownOne(db)).toBe("009_done_check");
     expect(migrateDownOne(db)).toBe("008_usage");
     expect(migrateDownOne(db)).toBe("007_handoff_decisions");
@@ -211,7 +215,9 @@ describe("프로젝트·마일스톤 판 번호", () => {
       "007_handoff_decisions",
       "008_usage",
       "009_done_check",
+      "010_task_hold",
     ]);
+    expect(migrateDownOne(db)).toBe("010_task_hold");
     expect(migrateDownOne(db)).toBe("009_done_check");
     expect(migrateDownOne(db)).toBe("008_usage");
     expect(migrateDownOne(db)).toBe("007_handoff_decisions");
@@ -236,6 +242,7 @@ describe("프로젝트·마일스톤 판 번호", () => {
       "007_handoff_decisions",
       "008_usage",
       "009_done_check",
+      "010_task_hold",
     ]);
     expect(store.getProject(p)?.version).toBe(1);
     expect(store.getMilestone(m)?.version).toBe(1);
@@ -246,6 +253,8 @@ describe("프로젝트·마일스톤 판 번호", () => {
       source_url: null,
       source_seen: null,
       progress_note: null,
+      hold_id: null,
+      hold_expires_at: null,
     });
     expect(db.pragma("foreign_key_check")).toEqual([]);
   });
