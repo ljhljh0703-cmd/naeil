@@ -174,6 +174,13 @@ export async function runImport(
       }
       // 이미 끝난 일은 새로 넣지 않는다 (지난 일로 작업판을 채우지 않음). 이미 있는 것만 완료으로 고친다
       const known = items.filter((i) => i.state === "open" || store.findBySource(source, i.ref));
+      // 넣을 것이 없으면 프로젝트를 만들지 않는다. 빈 프로젝트가 출처 없이 남으면, 작가가 이름을 바꾼 뒤
+      // 다음 가져오기가 옛 이름으로 또 만든다 (0.7.0 배포 때 실제로 5개 생김)
+      if (known.length === 0) {
+        const result = { created: 0, updated: 0, closed: 0, reopened: 0, same: 0, skipped: 0 };
+        sources.push({ source, project, result });
+        continue;
+      }
       const key = src.type === "github" ? `github:${src.repo}` : `vault:${source}`;
       const projectId = store.ensureProject(IMPORTER, project, key);
       sources.push({
