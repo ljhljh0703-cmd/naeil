@@ -42,6 +42,7 @@ export const toTask = (t: Task) => ({
   owner: t.owner ?? "author",
   sourceUrl: t.source_url ?? null,
   progressNote: t.progress_note ?? null,
+  priority: t.priority ?? "normal",
   createdAt: t.created_at,
   updatedAt: t.updated_at,
   deletedAt: t.deleted_at,

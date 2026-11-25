@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: naeil API
-  version: 0.7.1
+  version: 0.8.0
   summary: 내 일은 naeil에서
   description: |
     내일은내일(naeil) 할 일 API 명세서 v1 (작가 결정 4곳 반영 2026-10-25, 코드는 1-2단계).
@@ -638,7 +638,7 @@ paths:
       summary: 오늘 화면 (지금 할 것 1개, 내가 정할 것, 마감 가까운 것)
       description: |
         서버가 계산한다. 화면, 폰, AI 도구가 같은 「지금 할 것」을 본다.
-        지금 할 것 = 멈추지 않은 내 일 중 고정한 것 → 하는 중 → 마감 가까운 것 → 오래된 것. 건너뛴 것은 그날 하루 뺀다.
+        지금 할 것 = 멈추지 않은 내 일 중 고정한 것 → 하는 중 → 우선순위 높은 것 → 마감 가까운 것 → 오래된 것. 건너뛴 것은 그날 하루 뺀다.
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -1153,6 +1153,7 @@ components:
             owner: { $ref: "#/components/schemas/Owner" }
             sourceUrl: { type: [string, "null"], description: 가져온 일의 원문 주소 }
             progressNote: { type: [string, "null"], description: 어디까지 했나 한 줄 }
+            priority: { $ref: "#/components/schemas/Priority" }
     TaskCreate:
       type: object
       required: [projectId, title]
@@ -1176,6 +1177,7 @@ components:
         status: { $ref: "#/components/schemas/Status" }
         owner: { $ref: "#/components/schemas/Owner" }
         progressNote: { type: [string, "null"], maxLength: 500, description: 어디까지 했나 한 줄. null 이면 지움 }
+        priority: { $ref: "#/components/schemas/Priority" }
         dueAt: { type: [string, "null"], format: date-time }
         milestoneId: { type: [string, "null"], format: uuid }
     TaskPage:
@@ -1231,6 +1233,10 @@ components:
         changedBy: { type: [string, "null"] }
         changedKind: { type: [string, "null"] }
         changedAt: { type: [string, "null"], format: date-time }
+    Priority:
+      type: string
+      enum: [high, normal, low]
+      description: 우선순위. 지금 할 것은 하는 중 다음으로 높음 → 보통 → 낮음 순 (0.8.0). 기본 normal
     Owner:
       type: string
       enum: [author, ai]

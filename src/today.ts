@@ -22,6 +22,8 @@ const open = (t: Task) => t.status !== "done" && !t.deleted_at;
 // 지금 할 것 1개 (작가 결정 2026-10-25). 내가 직접 해야 하는 일 중
 //   ① 하던 중인 것 ② 마감 가까운 것 ③ 오래된 것
 // 「오늘 할 일」로 고정하면 그게 먼저, 「건너뛰기」 한 것은 그날 하루 뺀다.
+const RANK = { high: 0, normal: 1, low: 2 } as const;
+
 export function pickNow(
   tasks: Task[],
   opts: { skipped?: ReadonlySet<string>; pinnedId?: string | null } = {},
@@ -33,6 +35,10 @@ export function pickNow(
   const rest = mine.filter((t) => !opts.skipped?.has(t.id));
   rest.sort((a, b) => {
     if (a.status !== b.status) return a.status === "doing" ? -1 : b.status === "doing" ? 1 : 0;
+    // 하는 중 다음은 우선순위: 높음 → 보통 → 낮음 (012). 같으면 마감, 오래된 순
+    const pa = RANK[a.priority ?? "normal"];
+    const pb = RANK[b.priority ?? "normal"];
+    if (pa !== pb) return pa - pb;
     if (a.due_at !== b.due_at) {
       if (!a.due_at) return 1;
       if (!b.due_at) return -1;
