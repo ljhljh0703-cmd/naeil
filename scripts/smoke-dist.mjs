@@ -85,7 +85,7 @@ try {
     const after = await (await fetch(`${a.base}/health`)).json();
     check("상태 확인 백업 칸 ok", after.checks?.backup === "ok", JSON.stringify(after.checks));
     const refuse = spawnSync(process.execPath, [cli, "restore", "latest"], { cwd: work, env: cliEnv, encoding: "utf8" });
-    check("서버가 켜져 있으면 복원를 거절", refuse.status === 1 && refuse.stderr.includes("서버가 켜져 있음"), `${refuse.status} ${refuse.stderr.slice(-200)}`);
+    check("서버가 켜져 있으면 복원을 거절", refuse.status === 1 && refuse.stderr.includes("서버가 켜져 있음"), `${refuse.status} ${refuse.stderr.slice(-200)}`);
     if (WIN) {
       skipped.push("끄라는 신호(SIGTERM)에 정상 종료: 윈도우에는 그 신호가 없음 (아래 실행기 통로 시험이 대신)");
     } else {
