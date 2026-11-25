@@ -15,6 +15,8 @@ const task = (over: Partial<Task> = {}): Task => ({
   status: "todo",
   blocked_reason: null,
   held_by: null,
+  hold_id: null,
+  hold_expires_at: null,
   due_at: null,
   source: "direct",
   source_ref: null,
