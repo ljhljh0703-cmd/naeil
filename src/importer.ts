@@ -174,7 +174,8 @@ export async function runImport(
       }
       // 이미 끝난 일은 새로 넣지 않는다 (지난 일로 작업판을 채우지 않음). 이미 있는 것만 완료으로 고친다
       const known = items.filter((i) => i.state === "open" || store.findBySource(source, i.ref));
-      const projectId = store.ensureProject(IMPORTER, project);
+      const key = src.type === "github" ? `github:${src.repo}` : `vault:${source}`;
+      const projectId = store.ensureProject(IMPORTER, project, key);
       sources.push({
         source,
         project,

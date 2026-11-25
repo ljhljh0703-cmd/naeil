@@ -820,6 +820,58 @@ button.danger {
   opacity: 0.35;
 }
 
+/* 할 일 한 칸씩 (남은 개수가 눈으로 세어지게). 마일스톤끼리는 조금 더 띄운다 */
+.tickbar {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tick-group {
+  display: flex;
+  flex: 1 1 0;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tick {
+  flex: 1 1 0;
+  height: 10px;
+  min-width: 3px;
+  border-radius: 3px;
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line, rgba(0, 0, 0, 0.08));
+}
+
+.tick-done {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.tick-doing {
+  background: var(--accent);
+  opacity: 0.4;
+  box-shadow: none;
+}
+
+.tick-wait {
+  background: var(--warn);
+  opacity: 0.55;
+  box-shadow: none;
+}
+
+.name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+.name-row h2 {
+  margin: 0;
+}
+
 .bar-text {
   flex: 0 0 auto;
   color: var(--ink-2);
