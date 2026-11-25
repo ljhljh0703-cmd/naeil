@@ -54,6 +54,13 @@ export class Unauthorized extends AppError {
   }
 }
 
+// 권한표 (M2-1): 명세서 동작마다 x-naeil-who 에 적힌 API 키 종류만 부를 수 있다
+export class Forbidden extends AppError {
+  constructor(detail: string) {
+    super(403, "forbidden-for-key-kind", "이 API 키 종류로는 못 하는 동작", detail);
+  }
+}
+
 export class IdempotencyReused extends AppError {
   constructor() {
     super(

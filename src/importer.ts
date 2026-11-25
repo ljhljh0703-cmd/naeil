@@ -297,8 +297,11 @@ function applyRequest(store: Store, req: Record<string, unknown>, file: string):
   if (!id) throw new Error("할일 번호가 없음");
   const task = store.getTask(id, { includeTrashed: kind === "되돌리기" });
   if (!task) throw new Error(`할 일이 없음: ${id}`);
-  if (kind === "완료") store.setStatus(who, id, "done");
-  else if (kind === "진행 중") store.setStatus(who, id, "doing");
+  if (kind === "완료") {
+    store.setStatus(who, id, "done");
+    // 외부 입력 할 일은 AI 가 끝내도 바로 끝나지 않고 사람 확인 대기로 간다 (M2-1)
+    if (store.getTask(id)?.status !== "done") return `사람 확인 대기: ${task.title}`;
+  } else if (kind === "진행 중") store.setStatus(who, id, "doing");
   else if (kind === "되돌리기") store.revive(who, id);
   else if (kind === "정할 것") {
     const question = str(req.질문);

@@ -30,6 +30,7 @@ import {
   AppError,
   BadInput,
   ERROR_DOCS,
+  Forbidden,
   NotFound,
   RuleViolation,
   Unauthorized,
@@ -40,7 +41,7 @@ import { type DbState, dbChecker, type WebState } from "./health.js";
 import { IdempotencyStore, requestHash } from "./idempotency.js";
 import { VERSION } from "./paths.js";
 import { buildToday, etag, toChange, toDecision, toMilestone, toProject, toTask } from "./shape.js";
-import { routeSchema, specSchemaBundle, toFastifyPath } from "./spec.js";
+import { allowedKinds, routeSchema, specSchemaBundle, toFastifyPath } from "./spec.js";
 import { kstDate } from "./today.js";
 
 // 옛 방식(CommonJS) 꾸러미라 .default 로 꺼낸다
@@ -205,13 +206,25 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
     specPath: string,
     handler: RouteHandlerMethod,
-  ) =>
-    app.route({
+  ) => {
+    // /v1 밖(상태 확인)은 API 키 없이 부르므로 권한표도 없다
+    const who = specPath.startsWith("/v1/") ? allowedKinds(specPath, method) : null;
+    return app.route({
       method,
       url: toFastifyPath(specPath),
       schema: routeSchema(specPath, method),
+      // 권한표 (M2-1): 입력 검사보다 먼저 막는다. 막힌 동작은 본문이 틀려도 403
+      onRequest: async (req) => {
+        const kind = req.key?.kind;
+        if (who && kind && !who.includes(kind)) {
+          throw new Forbidden(
+            `${method} ${specPath} 는 ${who.join(", ")} API 키만 부를 수 있음 (이 키: ${kind})`,
+          );
+        }
+      },
       handler,
     });
+  };
 
   // 같은 요청 두 번 막기를 거쳐 만들기
   async function idempotent(

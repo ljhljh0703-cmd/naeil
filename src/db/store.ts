@@ -83,6 +83,13 @@ export type Decision = {
   note: string | null;
   answered_by: string | null;
   answered_at: string | null;
+  kind: string | null; // done_check = AI 가 끝냈다고 보고한 외부 입력 할 일의 확인 (M2-1)
+};
+// AI 가 외부 입력 할 일을 끝냈다고 보고할 때 작가에게 묻는 질문 (M2-1). 첫 선택지를 고르면 완료
+export const DONE_CHECK = {
+  question: "AI 가 끝냈다고 보고함. 실제로 문제없는지 확인했나요?",
+  options: ["완료", "다시 하기"],
+  basis: null,
 };
 export type DecisionAsk = {
   question: string;
@@ -678,6 +685,29 @@ export class Store {
       args.push(v);
       changed.progress_note = v;
     }
+    // 사람 확인 대기 (M2-1, 작가 2026-11-25 「AI로 지시해서 끝내고, 실제 문제는 없는지 직접 검증한다」):
+    // AI 가 외부 입력(깃허브, vault, 운영 이슈 등) 할 일을 완료로 바꾸면 끝내지 않고 작가에게 확인을 묻는다
+    if (
+      patch.status === "done" &&
+      before.status !== "done" &&
+      before.external_text === 1 &&
+      norm(who).kind === "ai"
+    ) {
+      const open = this.openDecision(id);
+      if (open && open.kind !== "done_check") {
+        throw new RuleViolation(
+          "open-decision",
+          "작가에게 묻고 있는 질문이 있어 끝낼 수 없음. 답을 받은 뒤 다시",
+        );
+      }
+      const { status: _claimed, ...rest } = patch;
+      this.db.transaction(() => {
+        this.updateTask(who, id, rest, expectedVersion);
+        this.askDecision(who, id, DONE_CHECK, "done_check");
+        this.log(who, "task", id, "done-claimed", { from: before.status });
+      })();
+      return;
+    }
     if (patch.status !== undefined) {
       sets.push("status = ?");
       args.push(patch.status);
@@ -909,7 +939,7 @@ export class Store {
 
   // 정할 것을 묻는다: 질문, 선택지, 추천, 근거. 할 일은 「내 결정 대기」로 멈춘다.
   // 이미 열린 질문이 있으면 그 질문을 고친다 (한 할 일에 열린 질문은 하나)
-  askDecision(who: Who, taskId: string, ask: DecisionAsk): void {
+  askDecision(who: Who, taskId: string, ask: DecisionAsk, kind: string | null = null): void {
     const { actor } = norm(who);
     const question = ask.question.trim();
     if (!question) throw new BadInput("질문이 비어 있음");
@@ -923,20 +953,21 @@ export class Store {
       if (open) {
         this.db
           .prepare(
-            "UPDATE decisions SET question = ?, options = ?, recommended = ?, basis = ? WHERE id = ?",
+            "UPDATE decisions SET question = ?, options = ?, recommended = ?, basis = ?, kind = ? WHERE id = ?",
           )
           .run(
             question,
             JSON.stringify(options),
             ask.recommended ?? null,
             ask.basis ?? null,
+            kind,
             open.id,
           );
       } else {
         this.db
           .prepare(
-            `INSERT INTO decisions (id, workspace_id, task_id, question, options, recommended, basis, asked_by, asked_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO decisions (id, workspace_id, task_id, question, options, recommended, basis, asked_by, asked_at, kind)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             crypto.randomUUID(),
@@ -948,6 +979,7 @@ export class Store {
             ask.basis ?? null,
             actor,
             this.now(),
+            kind,
           );
       }
       if (t.blocked_reason !== "my_decision") {
@@ -975,6 +1007,10 @@ export class Store {
         this.bump(taskId, undefined, "blocked_reason = NULL, held_by = NULL", []);
       }
       this.log(who, "task", taskId, "decide", { question: open.question, answer: a });
+      // 사람 확인에서 「완료」를 고르면 그때 끝낸다. 「다시 하기」는 멈춤만 풀고 그대로 둔다
+      if (open.kind === "done_check" && a === DONE_CHECK.options?.[0]) {
+        this.updateTask(who, taskId, { status: "done" });
+      }
     })();
   }
 
