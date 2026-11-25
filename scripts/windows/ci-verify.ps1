@@ -1,5 +1,5 @@
 ﻿# 자동 검사(CI)용: 윈도우 러너에서 deploy.ps1 로 배포한 뒤, 상시 서버가 약속대로 움직이는지 실제로 본다.
-# 실제 작업판 컴퓨터에서는 돌리지 않는다 (끝에서 자동 실행을 지우고, 복원를 한다).
+# 실제 작업판 컴퓨터에서는 돌리지 않는다 (끝에서 자동 실행을 지우고, 복원을 한다).
 #   powershell -ExecutionPolicy Bypass -File scripts\windows\ci-verify.ps1
 . "$PSScriptRoot\common.ps1"
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
