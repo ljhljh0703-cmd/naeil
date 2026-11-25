@@ -23,6 +23,12 @@ naeil API의 오류는 전부 한 가지 모양(`application/problem+json`, RFC 
 ## forbidden
 403. 열 수 없는 파일 (화면 파일 밖).
 
+## forbidden-for-key-kind
+403. 이 API 키 종류로는 부를 수 없는 동작 (권한표, M2-1). 동작마다 부를 수 있는 종류가 명세서 `x-naeil-who` 에 있다. AI 키는 프로젝트 휴지통과 복원, 결정 답하기를 못 하고, 자동 검사(ci) 키는 읽기만 한다.
+
+## open-decision
+422. 작가에게 묻고 있는 질문이 있는 할 일을 AI 가 끝내려 함. 답을 받은 뒤 다시.
+
 ## not-found
 404. 없거나 휴지통에 있음. 휴지통에 있는 할 일은 `POST /v1/tasks/{taskId}/revive` 로 복원한다.
 

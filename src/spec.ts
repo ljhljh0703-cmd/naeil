@@ -68,6 +68,13 @@ function resolveParam(p: Param): Param {
   return found;
 }
 
+// 권한표 (M2-1): 이 동작을 부를 수 있는 API 키 종류. 명세서 x-naeil-who 가 원본
+export function allowedKinds(specPath: string, method: string): string[] {
+  const who = (operation(specPath, method) as { "x-naeil-who"?: string[] })["x-naeil-who"];
+  if (!who?.length) throw new Error(`명세서 ${method} ${specPath} 에 x-naeil-who 가 없음`);
+  return who;
+}
+
 // 명세서의 매개변수·본문 규칙으로 Fastify 검사 규칙을 만든다.
 export function routeSchema(specPath: string, method: string) {
   const item = loadSpec().paths[specPath] ?? {};

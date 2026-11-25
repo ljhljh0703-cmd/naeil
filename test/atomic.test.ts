@@ -122,3 +122,40 @@ describe("프로젝트 휴지통과 되살리기: 네 곳이 한 묶음", () => 
     expect(count("tasks", `trashed_with = '${projectId}'`)).toBe(1);
   });
 });
+
+// M2-1 사람 확인 대기: 확인 질문, 멈춤, 「끝냈다고 보고」 기록은 한 묶음. 기록이 실패하면 질문도 멈춤도 남지 않는다
+describe("AI 가 외부 입력 할 일을 끝낼 때: 질문과 기록은 한 묶음", () => {
+  const ai = { actor: "claude", session: null, kind: "ai" as const };
+  const setup = async () => {
+    const projectId = await newProject();
+    const s = new Store(db);
+    const id = s.createTask("author", {
+      projectId,
+      title: "외부",
+      source: "github",
+      sourceRef: "x#1",
+    });
+    return { s, id };
+  };
+
+  it("대조: 실패를 넣지 않으면 질문 1개, 멈춤, 기록 1줄", async () => {
+    const { s, id } = await setup();
+    s.updateTask(ai, id, { status: "done" });
+    expect(count("decisions", "kind='done_check'")).toBe(1);
+    expect(s.getTask(id)?.blocked_reason).toBe("my_decision");
+    expect(count("change_log", "action='done-claimed'")).toBe(1);
+  });
+
+  it("기록이 실패하면 질문도 멈춤도 남지 않는다", async () => {
+    const { s, id } = await setup();
+    db.exec(`CREATE TRIGGER fail_claim BEFORE INSERT ON change_log
+             WHEN NEW.action = 'done-claimed'
+             BEGIN SELECT RAISE(ABORT, '기록 저장 실패 주입'); END`);
+    expect(() => s.updateTask(ai, id, { status: "done", title: "고친 제목" })).toThrow();
+    expect(count("decisions")).toBe(0);
+    const t = s.getTask(id);
+    expect(t?.blocked_reason).toBeNull();
+    expect(t?.status).toBe("todo");
+    expect(t?.title).toBe("외부");
+  });
+});

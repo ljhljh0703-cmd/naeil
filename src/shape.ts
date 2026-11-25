@@ -71,6 +71,7 @@ export const toDecision = (d: Decision) => ({
   note: d.note,
   answeredBy: d.answered_by,
   answeredAt: d.answered_at,
+  doneCheck: d.kind === "done_check",
 });
 
 // 오늘 (M1-7): 지금 할 것, 내가 정할 것, 마감 가까운 것을 서버가 계산
