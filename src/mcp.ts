@@ -141,14 +141,17 @@ export function fence(text: string): { text: string; fenced: number } {
   }
   let fenced = 0;
   const walk = (node: unknown): void => {
-    if (Array.isArray(node)) return node.forEach(walk);
+    if (Array.isArray(node)) {
+      for (const n of node) walk(n);
+      return;
+    }
     if (node && typeof node === "object") {
       const o = node as Record<string, unknown>;
       if (o.externalText === true && !(FENCE_MARK in o)) {
         o[FENCE_MARK] = FENCE_NOTE;
         fenced++;
       }
-      Object.values(o).forEach(walk);
+      for (const v of Object.values(o)) walk(v);
     }
   };
   walk(data);
