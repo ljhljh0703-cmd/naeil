@@ -53,7 +53,7 @@ export const TAGLINE = "내 일은 naeil에서";
 declare module "fastify" {
   interface FastifyRequest {
     key: KeyInfo | null;
-    who: { actor: string; session: string | null; kind: KeyKind };
+    who: { actor: string; session: string | null; kind: KeyKind; hold: string | null };
   }
 }
 
@@ -191,10 +191,12 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
       }
     }
     const session = req.headers["x-naeil-session"];
+    const hold = req.headers["x-naeil-hold"];
     req.who = {
       actor: req.key.name,
       session: typeof session === "string" ? session : null,
       kind: req.key.kind,
+      hold: typeof hold === "string" ? hold : null,
     };
   });
   app.addHook("onSend", async (_req, reply) => {
@@ -457,6 +459,19 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     const { taskId } = req.params as { taskId: string };
     storeFor(req).unblock(req.who, taskId);
     return sendTask(req, reply, taskId);
+  });
+
+  // 잡기와 놓기 (M2-2). 번호는 이 응답에만 나온다
+  route("POST", "/v1/tasks/{taskId}/hold", async (req, reply) => {
+    const { taskId } = req.params as { taskId: string };
+    const h = storeFor(req).hold(req.who, taskId);
+    return reply.code(200).send({ taskId, ...h });
+  });
+
+  route("DELETE", "/v1/tasks/{taskId}/hold", async (req, reply) => {
+    const { taskId } = req.params as { taskId: string };
+    storeFor(req).release(req.who, taskId);
+    return reply.code(204).send();
   });
 
   route("POST", "/v1/tasks/{taskId}/revive", async (req, reply) => {

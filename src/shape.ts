@@ -33,6 +33,7 @@ export const toTask = (t: Task) => ({
   status: t.status,
   blockedReason: t.blocked_reason,
   heldBy: t.held_by,
+  holdExpiresAt: t.hold_id ? (t.hold_expires_at ?? null) : null,
   dueAt: t.due_at,
   source: t.source,
   sourceRef: t.source_ref,

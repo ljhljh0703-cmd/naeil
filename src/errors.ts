@@ -61,6 +61,13 @@ export class Forbidden extends AppError {
   }
 }
 
+// 잡기와 놓기 (M2-2): 다른 세션이 잡은 일이거나(held), 이미 끝난 잡기 번호로 온 늦은 요청(hold-stale)
+export class HoldConflict extends AppError {
+  constructor(slug: "held" | "hold-stale", detail: string) {
+    super(409, slug, slug === "held" ? "다른 세션이 잡은 일" : "끝난 잡기 번호", detail);
+  }
+}
+
 export class IdempotencyReused extends AppError {
   constructor() {
     super(

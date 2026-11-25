@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: naeil API
-  version: 0.3.0
+  version: 0.4.0
   summary: 내 일은 naeil에서
   description: |
     내일은내일(naeil) 할 일 API 명세서 v1 (작가 결정 4곳 반영 2026-10-25, 코드는 1-2단계).
@@ -398,6 +398,7 @@ paths:
       description: 멈춤은 여기서 바꾸지 않고 `/block` 으로. 끝내면(status=done) 멈춘 이유·잡은 세션이 자동으로 지워진다. AI API 키가 외부 입력 할 일(externalText)을 완료로 바꾸면 바로 끝내지 않고 사람 확인 질문(doneCheck)이 생기며 할 일은 「내 결정 대기」로 멈춘다 (M2-1). 작가가 「완료」를 고르면 그때 끝난다.
       parameters:
         - $ref: "#/components/parameters/Session"
+        - $ref: "#/components/parameters/HoldId"
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
         required: true
@@ -407,6 +408,7 @@ paths:
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/HoldConflict" }
         "200":
           description: 바뀐 할 일
           content:
@@ -427,9 +429,11 @@ paths:
       summary: 할 일 휴지통으로
       parameters:
         - $ref: "#/components/parameters/Session"
+        - $ref: "#/components/parameters/HoldId"
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/HoldConflict" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "204": { description: 휴지통으로 감 }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -444,6 +448,7 @@ paths:
       summary: 멈춤 걸기 (멈춘 이유 + 잡은 세션)
       parameters:
         - $ref: "#/components/parameters/Session"
+        - $ref: "#/components/parameters/HoldId"
       requestBody:
         required: true
         content:
@@ -461,6 +466,7 @@ paths:
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/HoldConflict" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "200":
           description: 멈춘 할 일
@@ -480,9 +486,11 @@ paths:
       summary: 멈춤 풀기
       parameters:
         - $ref: "#/components/parameters/Session"
+        - $ref: "#/components/parameters/HoldId"
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/HoldConflict" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "200":
           description: 풀린 할 일
@@ -490,6 +498,54 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Task" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/tasks/{taskId}/hold:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    post:
+      tags: [tasks]
+      operationId: holdTask
+      x-naeil-who: [human, ai]
+      summary: 할 일을 잡는다 (M2-2). 서버가 잡기 번호를 발급하고 할 일은 「AI 작업 중」으로 멈춤
+      description: |
+        번호는 이 응답에만 나온다. 잡은 동안 그 할 일을 고치는 AI 요청은 `X-Naeil-Hold` 에 이 번호를 넣어야 한다.
+        번호 없이 오거나 다른 번호로 오면 409 `held`, 이미 끝난 잡기 번호로 오면 409 `hold-stale`(늦게 온 옛 요청).
+        같은 번호를 넣어 다시 부르면 시간만 늘린다. 잡기는 2시간 동안 쓰지 않으면 저절로 끝나고, 잡은 세션이 고칠 때마다 다시 늘어난다.
+        놓기, 완료, 휴지통, 작가에게 질문, 멈춤 풀기로도 끝난다. 사람 API 키는 잡기와 상관없이 고칠 수 있다.
+      parameters:
+        - $ref: "#/components/parameters/Session"
+        - $ref: "#/components/parameters/HoldId"
+      responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "200":
+          description: 잡기 번호
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Hold" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/HoldConflict" }
+        "422":
+          description: 규칙 위반 (끝난 일, 다른 이유로 멈춘 일)
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+    delete:
+      tags: [tasks]
+      operationId: releaseTask
+      x-naeil-who: [human, ai]
+      summary: 잡은 할 일을 놓는다 (M2-2). 잡기가 없으면 아무것도 안 함(다시 보내도 같음). AI 는 자기 번호로만, 사람은 누구 것이든
+      parameters:
+        - $ref: "#/components/parameters/Session"
+        - $ref: "#/components/parameters/HoldId"
+      responses:
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "204": { description: 놓음 }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/HoldConflict" }
 
   /v1/tasks/{taskId}/revive:
     parameters:
@@ -501,9 +557,11 @@ paths:
       summary: 복원 (휴지통에서 꺼내거나, 끝난 일을 다시 할 일로)
       parameters:
         - $ref: "#/components/parameters/Session"
+        - $ref: "#/components/parameters/HoldId"
       responses:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/HoldConflict" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "200":
           description: 복원한 할 일
@@ -667,6 +725,7 @@ paths:
       summary: 작가에게 정할 것을 묻는다 (할 일은 「내 결정 대기」로 멈춤. 열린 질문이 있으면 고침)
       parameters:
         - $ref: "#/components/parameters/Session"
+        - $ref: "#/components/parameters/HoldId"
       requestBody:
         required: true
         content:
@@ -687,6 +746,7 @@ paths:
         "500": { $ref: "#/components/responses/ServerError" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/HoldConflict" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "200":
           description: 열린 질문
@@ -883,6 +943,12 @@ components:
         - 명령 두 개로 관리: 새 API 키 만들기 · API 키 폐기
         - 키는 저장소에 올리지 않는다 (각 도구 설정 파일, 올리지 않는 목록에 포함)
   parameters:
+    HoldId:
+      name: X-Naeil-Hold
+      in: header
+      required: false
+      description: 잡기 번호 (M2-2). `POST /v1/tasks/{taskId}/hold` 가 준 번호. 잡은 할 일을 AI 가 고칠 때 넣는다
+      schema: { type: string, format: uuid }
     ProjectId:
       name: projectId
       in: path
@@ -952,6 +1018,11 @@ components:
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
+    HoldConflict:
+      description: 잡기 충돌 (M2-2). `held` = 다른 세션이 잡은 일이라 그 번호가 없으면 못 고침. `hold-stale` = 이미 끝난 잡기 번호로 온 늦은 요청
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
     Forbidden:
       description: 이 API 키 종류로는 부를 수 없는 동작 (동작마다 x-naeil-who 에 부를 수 있는 종류가 적혀 있음. human = 사람, ai = AI 세션, ci = 자동 검사)
       content:
@@ -984,6 +1055,15 @@ components:
           schema: { $ref: "#/components/schemas/Problem" }
 
   schemas:
+    Hold:
+      type: object
+      required: [taskId, holdId, expiresAt, heldBy]
+      additionalProperties: false
+      properties:
+        taskId: { type: string, format: uuid }
+        holdId: { type: string, format: uuid, description: 잡은 세션만 아는 번호. 이 할 일을 고칠 때 X-Naeil-Hold 에 넣는다 }
+        expiresAt: { type: string, format: date-time }
+        heldBy: { type: string }
     Health:
       type: object
       additionalProperties: false
@@ -1062,6 +1142,7 @@ components:
                 - $ref: "#/components/schemas/BlockedReason"
                 - type: "null"
             heldBy: { type: [string, "null"] }
+            holdExpiresAt: { type: [string, "null"], format: date-time, description: 잡기가 끝나는 시각 (M2-2). 잡기 번호는 내보내지 않음 }
             dueAt: { type: [string, "null"], format: date-time }
             source: { type: string, description: "direct, github 등" }
             sourceRef: { type: [string, "null"], description: "예 owner/repo#12" }

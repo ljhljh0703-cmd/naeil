@@ -1,7 +1,14 @@
 // 할 일 저장소. 바꿀 때마다 변경 기록에 한 줄 남긴다.
 import type Database from "better-sqlite3";
 // 노드 전용 꾸러미를 들이지 않는다 (브라우저 시연판이 이 파일을 그대로 씀). 아이디는 전역 crypto 로
-import { BadInput, Duplicate, NotFound, RuleViolation, VersionMismatch } from "../errors.js";
+import {
+  BadInput,
+  Duplicate,
+  HoldConflict,
+  NotFound,
+  RuleViolation,
+  VersionMismatch,
+} from "../errors.js";
 
 export const STATUSES = ["todo", "doing", "done"] as const;
 export const BLOCKED_REASONS = ["my_decision", "ai_working", "external", "tech"] as const;
@@ -10,7 +17,9 @@ export type BlockedReason = (typeof BLOCKED_REASONS)[number];
 
 // 누가 바꿨나. actor = API 키가 정한 도구 이름, session = 세션 이름표(선택)
 export type ActorKind = "human" | "ai" | "ci";
-export type Who = string | { actor: string; session?: string | null; kind?: ActorKind | null };
+export type Who =
+  | string
+  | { actor: string; session?: string | null; kind?: ActorKind | null; hold?: string | null };
 
 export type Project = {
   id: string;
@@ -51,6 +60,8 @@ export type Task = {
   status: Status;
   blocked_reason: BlockedReason | null;
   held_by: string | null;
+  hold_id: string | null; // 잡은 세션만 아는 번호 (M2-2). 응답에 내보내지 않음
+  hold_expires_at: string | null;
   due_at: string | null;
   source: string;
   source_ref: string | null;
@@ -217,11 +228,26 @@ const utc = (v: string | null | undefined) => {
   return date.toISOString();
 };
 
-function norm(who: Who): { actor: string; session: string | null; kind: ActorKind | null } {
+function norm(who: Who): {
+  actor: string;
+  session: string | null;
+  kind: ActorKind | null;
+  hold: string | null;
+} {
   return typeof who === "string"
-    ? { actor: who, session: null, kind: null }
-    : { actor: who.actor, session: who.session ?? null, kind: who.kind ?? null };
+    ? { actor: who, session: null, kind: null, hold: null }
+    : {
+        actor: who.actor,
+        session: who.session ?? null,
+        kind: who.kind ?? null,
+        hold: who.hold ?? null,
+      };
 }
+
+// 잡기가 끝날 때(놓기, 완료, 휴지통, 질문, 멈춤 풀기) 같이 지우는 칸 (M2-2)
+const CLEAR_HOLD = "held_by = NULL, hold_id = NULL, hold_expires_at = NULL";
+// 잡기는 이만큼 지나면 저절로 끝난다. 잡은 세션이 그 할 일을 고칠 때마다 다시 늘어난다
+export const HOLD_MS = 2 * 60 * 60 * 1000;
 
 export class Store {
   constructor(
@@ -650,6 +676,7 @@ export class Store {
 
   updateTask(who: Who, id: string, patch: TaskPatch, expectedVersion?: number): void {
     const before = this.mustTask(id);
+    this.guardHold(who, before);
     if (expectedVersion !== undefined && before.version !== expectedVersion) {
       throw new VersionMismatch();
     }
@@ -711,7 +738,7 @@ export class Store {
     if (patch.status !== undefined) {
       sets.push("status = ?");
       args.push(patch.status);
-      if (patch.status === "done") sets.push("blocked_reason = NULL", "held_by = NULL");
+      if (patch.status === "done") sets.push("blocked_reason = NULL", CLEAR_HOLD);
     }
     if (sets.length === 0) return;
     this.db.transaction(() => {
@@ -733,6 +760,7 @@ export class Store {
 
   block(who: Who, id: string, reason: BlockedReason, heldBy?: string): void {
     const before = this.mustTask(id);
+    this.guardHold(who, before);
     if (before.status === "done") {
       throw new RuleViolation("blocked-done", "끝난 일에는 멈춘 이유를 붙이지 않는다");
     }
@@ -746,18 +774,111 @@ export class Store {
   }
 
   unblock(who: Who, id: string): void {
-    if (!this.mustTask(id).blocked_reason) return; // 멈춘 게 없으면 바꿀 것도 없음
+    const t = this.mustTask(id);
+    this.guardHold(who, t);
+    if (!t.blocked_reason) return; // 멈춘 게 없으면 바꿀 것도 없음
     this.db.transaction(() => {
-      this.bump(id, undefined, "blocked_reason = NULL, held_by = NULL", []);
+      this.bump(id, undefined, `blocked_reason = NULL, ${CLEAR_HOLD}`, []);
       this.log(who, "task", id, "unblock");
+    })();
+  }
+
+  // ── 잡기와 놓기 (M2-2) ──
+  // 불변조건
+  //  1. 할 일 하나에 살아 있는 잡기는 많아야 하나 (번호가 있고 시간이 안 지남)
+  //  2. 살아 있는 잡기가 있으면, AI 의 쓰기는 그 번호를 가져온 것만 받는다 (409 held)
+  //  3. 잡기가 없는데 번호를 가져온 AI 쓰기는 옛 요청이라 거절한다 (409 hold-stale). 놓은 뒤, 시간이 지난 뒤, 남이 다시 잡은 뒤 늦게 온 요청
+  //  4. 사람은 잡기와 상관없이 고칠 수 있고, 남의 잡기도 놓을 수 있다
+  //  5. 잡기는 놓기, 완료, 휴지통, 작가에게 질문, 멈춤 풀기로 끝난다. 끝나면 번호를 지워 3번이 걸린다
+  //  번호를 안 가져온 AI 쓰기는, 아무도 안 잡은 할 일이면 예전처럼 받는다
+
+  private liveHold(t: Task): string | null {
+    return t.hold_id && t.hold_expires_at && t.hold_expires_at > this.now() ? t.hold_id : null;
+  }
+
+  private guardHold(who: Who, t: Task): void {
+    const { kind, hold } = norm(who);
+    if (kind !== "ai") return;
+    const live = this.liveHold(t);
+    if (live) {
+      if (hold !== live) {
+        throw new HoldConflict(
+          "held",
+          `다른 세션이 잡은 일 (${t.held_by ?? "누군가"}). 놓을 때까지 기다리세요`,
+        );
+      }
+      // 잡은 세션이 고칠 때마다 시간을 늘린다. 내용이 바뀐 게 아니라 판 번호는 그대로
+      this.db
+        .prepare("UPDATE tasks SET hold_expires_at = ? WHERE id = ? AND workspace_id = ?")
+        .run(new Date(this.clock().getTime() + HOLD_MS).toISOString(), t.id, this.workspace);
+    } else if (hold) {
+      throw new HoldConflict(
+        "hold-stale",
+        "이 잡기는 이미 끝남 (놓았거나, 시간이 지났거나, 할 일이 끝남). 다시 잡으세요",
+      );
+    }
+  }
+
+  // 잡는다: 서버가 번호를 발급한다. 같은 번호를 가져오면 시간만 늘린다
+  hold(who: Who, id: string): { holdId: string; expiresAt: string; heldBy: string } {
+    const { actor, session, hold } = norm(who);
+    return this.db.transaction(() => {
+      const t = this.mustTask(id);
+      if (t.status === "done") throw new RuleViolation("hold-done", "끝난 일은 잡지 않는다");
+      const live = this.liveHold(t);
+      const expiresAt = new Date(this.clock().getTime() + HOLD_MS).toISOString();
+      if (live && hold === live) {
+        this.db
+          .prepare("UPDATE tasks SET hold_expires_at = ? WHERE id = ? AND workspace_id = ?")
+          .run(expiresAt, id, this.workspace);
+        return { holdId: live, expiresAt, heldBy: t.held_by ?? actor };
+      }
+      if (live) {
+        throw new HoldConflict(
+          "held",
+          `다른 세션이 잡은 일 (${t.held_by ?? "누군가"}). 놓을 때까지 기다리세요`,
+        );
+      }
+      if (t.blocked_reason && t.blocked_reason !== "ai_working") {
+        throw new RuleViolation(
+          "hold-blocked",
+          "다른 이유로 멈춘 일은 잡지 않는다. 멈춤을 먼저 풀어야 함",
+        );
+      }
+      const holdId = crypto.randomUUID();
+      const heldBy = session ? `${actor} · ${session}` : actor;
+      this.bump(
+        id,
+        undefined,
+        "blocked_reason = 'ai_working', held_by = ?, hold_id = ?, hold_expires_at = ?",
+        [heldBy, holdId, expiresAt],
+      );
+      this.log(who, "task", id, "hold", { held_by: heldBy, expires_at: expiresAt });
+      return { holdId, expiresAt, heldBy };
+    })();
+  }
+
+  // 놓는다. 잡기가 없으면 할 일 없음(다시 보내도 같음). AI 는 자기 번호로만 놓는다
+  release(who: Who, id: string): void {
+    const { kind, hold } = norm(who);
+    this.db.transaction(() => {
+      const t = this.mustTask(id);
+      const live = this.liveHold(t);
+      if (live && kind === "ai" && hold !== live) {
+        throw new HoldConflict("held", "다른 세션이 잡은 일은 놓을 수 없음");
+      }
+      if (!t.hold_id) return;
+      const unblock = t.blocked_reason === "ai_working" ? "blocked_reason = NULL, " : "";
+      this.bump(id, undefined, `${unblock}${CLEAR_HOLD}`, []);
+      this.log(who, "task", id, "release", live ? {} : { expired: true });
     })();
   }
 
   // 휴지통으로. 목록에서 빠지지만 되살릴 수 있다.
   trash(who: Who, id: string): void {
-    this.mustTask(id);
+    this.guardHold(who, this.mustTask(id));
     this.db.transaction(() => {
-      this.bump(id, undefined, "deleted_at = ?", [this.now()]);
+      this.bump(id, undefined, `deleted_at = ?, ${CLEAR_HOLD}`, [this.now()]);
       this.log(who, "task", id, "trash");
     })();
   }
@@ -765,6 +886,7 @@ export class Store {
   // 되살리기: 휴지통에서 꺼내거나, 끝난 일을 다시 연다.
   revive(who: Who, id: string): void {
     const t = this.mustTask(id, { includeTrashed: true });
+    this.guardHold(who, t);
     if (!t.deleted_at && t.status !== "done") return; // 이미 살아 있음
     // 휴지통에 든 프로젝트의 할 일만 꺼내면 보이지 않는 곳에 살아난다. 프로젝트를 되살리게 한다
     if (t.deleted_at && !this.getProject(t.project_id)) {
@@ -877,7 +999,7 @@ export class Store {
         }
         let change = "update";
         if (moved("state") && seen.state === "done" && t.status !== "done") {
-          sets.push("status = 'done'", "blocked_reason = NULL", "held_by = NULL");
+          sets.push("status = 'done'", "blocked_reason = NULL", CLEAR_HOLD);
           change = "close";
         } else if (moved("state") && seen.state === "open" && t.status === "done") {
           // 출처에서 다시 열린 것 (놓친 것 부활)
@@ -946,6 +1068,7 @@ export class Store {
     const options = [...new Set((ask.options ?? []).map((o) => o.trim()).filter(Boolean))];
     this.db.transaction(() => {
       const t = this.mustTask(taskId);
+      this.guardHold(who, t);
       if (t.status === "done") {
         throw new RuleViolation("decision-done", "끝난 일에는 정할 것을 붙이지 않는다");
       }
@@ -983,7 +1106,7 @@ export class Store {
           );
       }
       if (t.blocked_reason !== "my_decision") {
-        this.bump(taskId, undefined, "blocked_reason = 'my_decision', held_by = NULL", []);
+        this.bump(taskId, undefined, `blocked_reason = 'my_decision', ${CLEAR_HOLD}`, []);
       }
       this.log(who, "task", taskId, "ask", { question, options });
     })();
@@ -1004,7 +1127,7 @@ export class Store {
         )
         .run(a, note?.trim() || null, actor, this.now(), open.id);
       if (t.blocked_reason === "my_decision") {
-        this.bump(taskId, undefined, "blocked_reason = NULL, held_by = NULL", []);
+        this.bump(taskId, undefined, `blocked_reason = NULL, ${CLEAR_HOLD}`, []);
       }
       this.log(who, "task", taskId, "decide", { question: open.question, answer: a });
       // 사람 확인에서 「완료」를 고르면 그때 끝낸다. 「다시 하기」는 멈춤만 풀고 그대로 둔다
