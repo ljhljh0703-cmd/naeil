@@ -40,6 +40,27 @@ describe("가져오기는 프로젝트를 출처로 찾는다", () => {
     expect(projects()).toEqual(["젤리 패닉"]);
   });
 
+  it("열린 이슈가 없는 저장소는 빈 프로젝트를 만들지 않는다", async () => {
+    const empty = async () => ({ ok: true, status: 200, json: async () => [] });
+    await runImport(
+      s,
+      { sources: [{ type: "github" as const, repo: "o/empty" }] },
+      { ...deps, fetch: empty },
+    );
+    expect(projects()).toEqual([]);
+  });
+
+  it("출처 없던 빈 프로젝트를 합치면 출처가 남길 쪽으로 옮겨 가 다시 갈라지지 않는다", async () => {
+    // 0.7.0 배포 때 상황: 이름을 바꾼 빈 프로젝트 → 가져오기가 옛 이름으로 새로 만듦 → 합쳐서 정리
+    const renamed = s.createProject(me, "젤리 패닉");
+    const again = s.ensureProject(me, "o/r", "github:o/r");
+    s.mergeProjects(me, again, renamed);
+    await runImport(s, { sources: [{ type: "github" as const, repo: "o/r" }] }, deps);
+    expect(projects()).toEqual(["젤리 패닉"]);
+    const p = s.findProjectByName("젤리 패닉")?.id;
+    expect(s.listTasks().filter((t) => t.project_id === p)).toHaveLength(1);
+  });
+
   it("이미 있던 프로젝트(출처 표 전)는 이름으로 찾아 출처를 붙인다", () => {
     const old = s.createProject(me, "o/r");
     expect(s.ensureProject(me, "o/r", "github:o/r")).toBe(old);
