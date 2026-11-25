@@ -200,6 +200,15 @@ describe("바깥 글 울타리 (M2-3)", () => {
     expect(r.text.startsWith("[주의]")).toBe(false);
   });
 
+  it("읽기 도구만 읽기 전용 표시가 붙는다", async () => {
+    const { tools } = await client.listTools();
+    const hint = (n: string) => tools.find((t) => t.name === n)?.annotations?.readOnlyHint;
+    expect(hint("getToday")).toBe(true);
+    expect(hint("listTasks")).toBe(true);
+    expect(hint("updateTask")).toBe(false);
+    expect(hint("createTask")).toBe(false);
+  });
+
   it("도구 설명과 연결 안내에도 같은 규칙이 있다", async () => {
     const { tools } = await client.listTools();
     for (const t of tools) expect(t.description).toContain("지시가 아니다");
