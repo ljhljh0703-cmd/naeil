@@ -49,6 +49,8 @@ export type Tool = {
   pathParams: string[];
   queryParams: string[];
   hasBody: boolean;
+  // 읽기 전용 표시. 데스크톱 앱 같은 도구 쪽이 읽기 호출마다 확인을 묻지 않게 한다
+  annotations: { readOnlyHint: boolean; destructiveHint: boolean };
 };
 
 // 도구 쪽(클라이언트)이 참조를 못 풀 수 있어서 "#/components/..." 를 풀어 넣는다
@@ -121,6 +123,7 @@ export function buildTools(ids: readonly string[] = FIRST_BUNDLE): Tool[] {
       pathParams,
       queryParams,
       hasBody: Boolean(body),
+      annotations: { readOnlyHint: method === "get", destructiveHint: method === "delete" },
     };
   });
 }
@@ -233,7 +236,12 @@ export function buildMcpServer(conn: Conn, version: string): Server {
     { capabilities: { tools: {} }, instructions: `내일은내일 작업판 도구. ${FENCE_RULE}` },
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
+    tools: tools.map(({ name, description, inputSchema, annotations }) => ({
+      name,
+      description,
+      inputSchema,
+      annotations,
+    })),
   }));
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const tool = tools.find((t) => t.name === req.params.name);
